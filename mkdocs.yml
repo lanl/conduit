@@ -1,5 +1,6 @@
 site_name: CONDUIT
 site_description: Documentation for Conduit
+site_url: https://lanl.github.io/conduit/
 repo_url: https://github.com/lanl/conduit
 repo_name: lanl/conduit
 
