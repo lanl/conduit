@@ -1,6 +1,6 @@
 ## Quick Start
 
-This quick start guide will use the docker compose example found in the README. This example can be used as an example for a full conduit deployment within a containerized environment. The [Build script](examples/docker/build.sh) generates all the required certs/keys for conduit to operate. The [run script](examples/docker/run.sh) starts conduit with docker compose and opens an interactive session to a client container.
+This quick start guide will use the docker compose example found in the README. This example can be used as an example for a full conduit deployment within a containerized environment. The [Build script](https://github.com/lanl/conduit/blob/main/examples/docker/build.sh) generates all the required certs/keys for conduit to operate. The [run script](https://github.com/lanl/conduit/blob/main/examples/docker/run.sh) starts conduit with docker compose and opens an interactive session to a client container.
 
 ### Dependencies
 
