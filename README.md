@@ -1,7 +1,7 @@
 # CONDUIT
 
 Conduit (Capacity ON Demand User Interaction Toolset) is a distributed data transfer service designed to move large datasets efficiently between storage systems in high-performance computing (HPC) environments.
-It provides a client–server architecture for scheduling and executing parallel data transfer jobs across a cluster, enabling reliable and permission-aware data movement at scale.
+It provides a client–server architecture for scheduling and executing parallel data transfer jobs across a cluster, with reliable data movement that respects filesystem permissions.
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ Conduit is a distributed, client–server data transfer service intended for org
 
 HPC infrastructures often include a variety of storage systems located on different servers and backed by different filesystems. Moving large datasets reliably and efficiently between these systems requires coordination, parallel execution, and careful enforcement of access controls.
 
-Conduit provides a unified service for scheduling, coordinating, and executing data transfer jobs across a dedicated data transfer cluster. One or more Conduit server instances operate together as a single logical control plane, while transfer work is executed in parallel on worker nodes using user-level permissions to ensure transfers respect existing filesystem access controls.
+Conduit provides a unified service for scheduling, coordinating, and executing data transfer jobs across a dedicated data transfer cluster. One or more Conduit server instances form a coordinated cluster, while transfer work is executed in parallel on worker nodes using user-level permissions to ensure transfers respect existing filesystem access controls.
 
 Users interact with Conduit through a gRPC API (typically via the `conduit` CLI) to submit, monitor, and manage transfer jobs. The system is designed to be extensible, allowing administrators to support different storage backends and transfer mechanisms through a plugin-based model.
 
@@ -30,7 +30,7 @@ See the [Quick Start Guide](https://lanl.github.io/conduit/quick-start/)
 
 ## Architecture
 
-At a high level, Conduit consists of a logically unified control plane and a set of data transfer nodes that execute transfer work in parallel.
+At a high level, Conduit consists of a server cluster that coordinates transfer jobs and a pool of worker nodes that execute transfer operations concurrently.
 
 ![Conduit Architecture Overview](docs/images/conduit-architecture-simple.svg)
 
