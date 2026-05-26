@@ -251,12 +251,14 @@ systemctl start etcd
 ```bash
 # unique id for this rqlite node
 RQLITE_NODE_ID=1
-# ip for conduit to reach rqlite
+# ip for conduit to reach rqlite (HTTP API)
 RQLITE_HTTP_ADDR=192.168.0.18:4001
-# ip for other rqlite nodes to communicate with this node
+RQLITE_HTTP_ADV_ADDR=192.168.0.18:4001
+# ip for other rqlite nodes to communicate with this node (Raft)
 RQLITE_RAFT_ADDR=192.168.0.18:4002
-# ip address that nodes should use to join cluster. This should be the same across all nodes
-RQLITE_JOIN=https://192.168.0.18:4001
+RQLITE_RAFT_ADV_ADDR=192.168.0.18:4002
+# Raft address that nodes should use to join cluster (note: uses Raft port 4002, not HTTP port)
+RQLITE_JOIN=192.168.0.18:4002
 # server cert and key used for communicating with conduit
 RQLITE_CA_PATH=/etc/conduit/keys/conduit_internal_ca.pem
 RQLITE_CERT_PATH=/var/lib/rqlite/rqlite_server_cert.pem
@@ -339,7 +341,7 @@ systemctl start conduit-runner
 
 1. Copy over `conduit-fta` binary to each fta node. This needs to be in the location specified in the conduit runner config created earlier
 
-2. Add `/etc/conduit/fta-config.yaml` to all FTAs:
+2. Add `/etc/conduit/conduit-fta-config.yaml` to all FTAs:
 
 ```yaml
 auth:

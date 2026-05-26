@@ -20,7 +20,7 @@ const (
 	DefaultPort                     = 23456
 	DefaultWSPort                   = 8080
 	DefaultConfigLocation           = "/etc/conduit/"
-	ConfigName                      = "conduit-config"
+	ConfigName                      = "conduit-server-config"
 	ConfigType                      = "yaml"
 	envPrefix                       = "CONDUIT"
 	DefaultKeytabName               = "conduit.keytab"

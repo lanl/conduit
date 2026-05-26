@@ -25,6 +25,10 @@ mkdir -p $CONDUIT_PATH/etcd-1
 mkdir -p $CONDUIT_PATH/etcd-2
 mkdir -p $CONDUIT_PATH/etcd-3
 chmod 700 $CONDUIT_PATH/etcd-*
+mkdir -p $CONDUIT_PATH/rqlite-1
+mkdir -p $CONDUIT_PATH/rqlite-2
+mkdir -p $CONDUIT_PATH/rqlite-3
+chown 1000:1000 $CONDUIT_PATH/rqlite-*
 
 # create example fs directories
 mkdir -p $CONDUIT_PATH/conduit_fs_1/conduit-staging-area/stage-in
@@ -109,6 +113,11 @@ echo internal-server-cert-rqlite:
     --output $CONDUIT_PATH/keys/ \
     --server-ip 192.168.20.31,192.168.20.32,192.168.20.33 \
     --server-hostname rqlite-1.example.com,rqlite-2.example.com,rqlite-3.example.com
+
+chown 1000:1000 -R \
+	"${CONDUIT_PATH}"/keys/rqlite_server_cert.pem \
+	"${CONDUIT_PATH}"/keys/rqlite_server_key.pem \
+	"${CONDUIT_PATH}"/keys/rqlite_server_key.pem \
 
 echo external-client-cert-dws:
 ../../bin/conduit-server external-client-cert -d \

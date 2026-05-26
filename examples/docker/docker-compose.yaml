@@ -43,115 +43,6 @@ services:
   #     - ./config_files/ldifs:/container/service/slapd/assets/config/bootstrap/ldif/custom
   #   command: ["--copy-service"]
 
-  etcd-1:
-    image: gcr.io/etcd-development/etcd:v3.5.4
-    container_name: etcd-1
-    hostname: etcd-1.example.com
-    restart: unless-stopped
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config_files/hosts:/etc/hosts:ro
-      - /etc/conduit/keys:/conduit:ro
-      - /etc/conduit/etcd-1:/etcd-data
-    command:
-      - /usr/local/bin/etcd
-      - --name=etcd-1
-      - --data-dir=/etcd-data
-      - --listen-client-urls=https://192.168.20.21:2379
-      - --advertise-client-urls=https://192.168.20.21:2379
-      - --listen-peer-urls=https://192.168.20.21:2380
-      - --initial-advertise-peer-urls=https://192.168.20.21:2380
-      - --initial-cluster=etcd-1=https://192.168.20.21:2380,etcd-2=https://192.168.20.22:2380,etcd-3=https://192.168.20.23:2380
-      - --initial-cluster-token=token-01
-      - --initial-cluster-state=new
-      - --log-level=debug
-      - --logger=zap
-      - --log-outputs=stderr
-      - --cert-file=/conduit/etcd_server_cert.pem
-      - --key-file=/conduit/etcd_server_key.pem
-      - --client-cert-auth
-      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-cert-file=/conduit/etcd_server_cert.pem
-      - --peer-key-file=/conduit/etcd_server_key.pem
-      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-client-cert-auth
-      - --quota-backend-bytes=8589934592
-    networks:
-      conduit:
-        ipv4_address: 192.168.20.21
-  etcd-2:
-    image: gcr.io/etcd-development/etcd:v3.5.4
-    container_name: etcd-2
-    hostname: etcd-2.example.com
-    restart: unless-stopped
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config_files/hosts:/etc/hosts:ro
-      - /etc/conduit/keys:/conduit:ro
-      - /etc/conduit/etcd-2:/etcd-data
-    command:
-      - /usr/local/bin/etcd
-      - --name=etcd-2
-      - --data-dir=/etcd-data
-      - --listen-client-urls=https://192.168.20.22:2379
-      - --advertise-client-urls=https://192.168.20.22:2379
-      - --listen-peer-urls=https://192.168.20.22:2380
-      - --initial-advertise-peer-urls=https://192.168.20.22:2380
-      - --initial-cluster=etcd-1=https://192.168.20.21:2380,etcd-2=https://192.168.20.22:2380,etcd-3=https://192.168.20.23:2380
-      - --initial-cluster-token=token-01
-      - --initial-cluster-state=new
-      - --log-level=debug
-      - --logger=zap
-      - --log-outputs=stderr
-      - --cert-file=/conduit/etcd_server_cert.pem
-      - --key-file=/conduit/etcd_server_key.pem
-      - --client-cert-auth
-      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-cert-file=/conduit/etcd_server_cert.pem
-      - --peer-key-file=/conduit/etcd_server_key.pem
-      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-client-cert-auth
-      - --quota-backend-bytes=8589934592
-    networks:
-      conduit:
-        ipv4_address: 192.168.20.22
-  etcd-3:
-    image: gcr.io/etcd-development/etcd:v3.5.4
-    container_name: etcd-3
-    hostname: etcd-3.example.com
-    restart: unless-stopped
-    volumes:
-      - /etc/localtime:/etc/localtime:ro
-      - ./config_files/hosts:/etc/hosts:ro
-      - /etc/conduit/keys:/conduit:ro
-      - /etc/conduit/etcd-3:/etcd-data
-    command:
-      - /usr/local/bin/etcd
-      - --name=etcd-3
-      - --data-dir=/etcd-data
-      - --listen-client-urls=https://192.168.20.23:2379
-      - --advertise-client-urls=https://192.168.20.23:2379
-      - --listen-peer-urls=https://192.168.20.23:2380
-      - --initial-advertise-peer-urls=https://192.168.20.23:2380
-      - --initial-cluster=etcd-1=https://192.168.20.21:2380,etcd-2=https://192.168.20.22:2380,etcd-3=https://192.168.20.23:2380
-      - --initial-cluster-token=token-01
-      - --initial-cluster-state=new
-      - --log-level=debug
-      - --logger=zap
-      - --log-outputs=stderr
-      - --cert-file=/conduit/etcd_server_cert.pem
-      - --key-file=/conduit/etcd_server_key.pem
-      - --client-cert-auth
-      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-cert-file=/conduit/etcd_server_cert.pem
-      - --peer-key-file=/conduit/etcd_server_key.pem
-      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-client-cert-auth
-      - --quota-backend-bytes=8589934592
-    networks:
-      conduit:
-        ipv4_address: 192.168.20.23
-
   client:
     image: client:latest
     build:
@@ -175,7 +66,7 @@ services:
       - ../../:/conduit/conduit
       - ../../../conduit-cli:/conduit/conduit-cli
       - /etc/conduit/keys:/etc/conduit/keys:ro
-      - ./config_files/conduit-config.yaml:/etc/conduit/conduit-config.yaml:ro
+      - ./config_files/conduit-server-config.yaml:/etc/conduit/conduit-server-config.yaml:ro
       - ./config_files/conduit-cli-config.yaml:/etc/conduit/conduit-cli-config.yaml:ro
       - /etc/conduit/conduit_fs_1:/mnt/fs_1
       - /etc/conduit/conduit_fs_2:/mnt/fs_2
@@ -221,7 +112,7 @@ services:
       - ./config_files/hosts:/etc/hosts:ro
       - ../../:/conduit/conduit
       - /etc/conduit/keys:/etc/conduit/keys
-      - ./config_files/conduit-config.yaml:/etc/conduit/conduit-config.yaml:ro
+      - ./config_files/conduit-server-config.yaml:/etc/conduit/conduit-server-config.yaml:ro
     command:
       - -d
       # - --clear-etcd
@@ -254,9 +145,9 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./config_files/hosts:/etc/hosts:ro
       - /etc/conduit/keys:/etc/conduit/keys:ro
-      - ./config_files/conduit-config.yaml:/etc/conduit/conduit-config.yaml:ro
-      - ./config_files/fta-config.yaml:/etc/conduit/conduit-fta-config.yaml:ro
-      - ./config_files/runner-config.yaml:/etc/conduit/conduit-runner-config.yaml:ro
+      - ./config_files/conduit-server-config.yaml:/etc/conduit/conduit-server-config.yaml:ro
+      - ./config_files/conduit-fta-config.yaml:/etc/conduit/conduit-fta-config.yaml:ro
+      - ./config_files/conduit-runner-config.yaml:/etc/conduit/conduit-runner-config.yaml:ro
       # - /sys/fs/cgroup/system.slice:/sys/fs/cgroup/system.slice
       - /etc/conduit/ssh/testuser:/home/testuser/.ssh:ro
       - /etc/conduit/ssh/host/ssh_host_ecdsa_key:/etc/ssh/ssh_host_ecdsa_key:ro
@@ -281,9 +172,9 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./config_files/hosts:/etc/hosts:ro
       - /etc/conduit/keys:/etc/conduit/keys:ro
-      - ./config_files/conduit-config.yaml:/etc/conduit/conduit-config.yaml:ro
-      - ./config_files/fta-config.yaml:/etc/conduit/conduit-fta-config.yaml:ro
-      - ./config_files/runner-config.yaml:/etc/conduit/conduit-runner-config.yaml:ro
+      - ./config_files/conduit-server-config.yaml:/etc/conduit/conduit-server-config.yaml:ro
+      - ./config_files/conduit-fta-config.yaml:/etc/conduit/conduit-fta-config.yaml:ro
+      - ./config_files/conduit-runner-config.yaml:/etc/conduit/conduit-runner-config.yaml:ro
       # - /sys/fs/cgroup/system.slice:/sys/fs/cgroup/system.slice
       - /etc/conduit/ssh/testuser:/home/testuser/.ssh:ro
       - /etc/conduit/ssh/host/ssh_host_ecdsa_key:/etc/ssh/ssh_host_ecdsa_key:ro
@@ -294,13 +185,117 @@ services:
       conduit:
         ipv4_address: 192.168.20.7
 
+  etcd-1:
+    image: gcr.io/etcd-development/etcd:v3.6.11
+    container_name: etcd-1
+    hostname: etcd-1.example.com
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config_files/hosts:/etc/hosts:ro
+      - /etc/conduit/keys:/conduit:ro
+      - /etc/conduit/etcd-1:/etcd-data
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd-1
+      - --data-dir=/etcd-data
+      - --listen-client-urls=https://192.168.20.21:2379
+      - --advertise-client-urls=https://192.168.20.21:2379
+      - --listen-peer-urls=https://192.168.20.21:2380
+      - --initial-advertise-peer-urls=https://192.168.20.21:2380
+      - --initial-cluster=etcd-1=https://192.168.20.21:2380,etcd-2=https://192.168.20.22:2380,etcd-3=https://192.168.20.23:2380
+      - --initial-cluster-token=token-01
+      - --initial-cluster-state=new
+      - --log-level=debug
+      - --logger=zap
+      - --log-outputs=stderr
+      - --cert-file=/conduit/etcd_server_cert.pem
+      - --key-file=/conduit/etcd_server_key.pem
+      - --client-cert-auth
+      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --peer-cert-file=/conduit/etcd_server_cert.pem
+      - --peer-key-file=/conduit/etcd_server_key.pem
+      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --peer-client-cert-auth
+      - --quota-backend-bytes=8589934592
+    networks:
+      conduit:
+        ipv4_address: 192.168.20.21
+  etcd-2:
+    image: gcr.io/etcd-development/etcd:v3.6.11
+    container_name: etcd-2
+    hostname: etcd-2.example.com
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config_files/hosts:/etc/hosts:ro
+      - /etc/conduit/keys:/conduit:ro
+      - /etc/conduit/etcd-2:/etcd-data
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd-2
+      - --data-dir=/etcd-data
+      - --listen-client-urls=https://192.168.20.22:2379
+      - --advertise-client-urls=https://192.168.20.22:2379
+      - --listen-peer-urls=https://192.168.20.22:2380
+      - --initial-advertise-peer-urls=https://192.168.20.22:2380
+      - --initial-cluster=etcd-1=https://192.168.20.21:2380,etcd-2=https://192.168.20.22:2380,etcd-3=https://192.168.20.23:2380
+      - --initial-cluster-token=token-01
+      - --initial-cluster-state=new
+      - --log-level=debug
+      - --logger=zap
+      - --log-outputs=stderr
+      - --cert-file=/conduit/etcd_server_cert.pem
+      - --key-file=/conduit/etcd_server_key.pem
+      - --client-cert-auth
+      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --peer-cert-file=/conduit/etcd_server_cert.pem
+      - --peer-key-file=/conduit/etcd_server_key.pem
+      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --peer-client-cert-auth
+      - --quota-backend-bytes=8589934592
+    networks:
+      conduit:
+        ipv4_address: 192.168.20.22
+  etcd-3:
+    image: gcr.io/etcd-development/etcd:v3.6.11
+    container_name: etcd-3
+    hostname: etcd-3.example.com
+    restart: unless-stopped
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./config_files/hosts:/etc/hosts:ro
+      - /etc/conduit/keys:/conduit:ro
+      - /etc/conduit/etcd-3:/etcd-data
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd-3
+      - --data-dir=/etcd-data
+      - --listen-client-urls=https://192.168.20.23:2379
+      - --advertise-client-urls=https://192.168.20.23:2379
+      - --listen-peer-urls=https://192.168.20.23:2380
+      - --initial-advertise-peer-urls=https://192.168.20.23:2380
+      - --initial-cluster=etcd-1=https://192.168.20.21:2380,etcd-2=https://192.168.20.22:2380,etcd-3=https://192.168.20.23:2380
+      - --initial-cluster-token=token-01
+      - --initial-cluster-state=new
+      - --log-level=debug
+      - --logger=zap
+      - --log-outputs=stderr
+      - --cert-file=/conduit/etcd_server_cert.pem
+      - --key-file=/conduit/etcd_server_key.pem
+      - --client-cert-auth
+      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --peer-cert-file=/conduit/etcd_server_cert.pem
+      - --peer-key-file=/conduit/etcd_server_key.pem
+      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --peer-client-cert-auth
+      - --quota-backend-bytes=8589934592
+    networks:
+      conduit:
+        ipv4_address: 192.168.20.23
+
   rqlite-1:
-    image: rqlite/rqlite:7.21.4
-    build:
-      context: .
-      dockerfile: Dockerfile.rqlite
-      args:
-        - RQLITE_VERSION=v7.21.4
+    image: rqlite/rqlite:10.1.0
     container_name: rqlite-1
     hostname: rqlite-1.example.com
     restart: unless-stopped
@@ -311,27 +306,24 @@ services:
       - /etc/conduit/rqlite-1:/rqlite/file
     command:
       - -node-id=1
-      - -on-disk=true
       - -http-ca-cert=/conduit/conduit_internal_ca.pem
       - -http-cert=/conduit/rqlite_server_cert.pem
       - -http-key=/conduit/rqlite_server_key.pem
-      - -http-verify-client=1
+      - -http-verify-client=true
       - -http-addr=192.168.20.31:4001
+      - -http-adv-addr=192.168.20.31:4001
       - -raft-addr=192.168.20.31:4002
+      - -raft-adv-addr=192.168.20.31:4002
       - -node-cert=/conduit/rqlite_server_cert.pem
       - -node-key=/conduit/rqlite_server_key.pem
       - -node-ca-cert=/conduit/conduit_internal_ca.pem
-      - -node-verify-client=1
+      - -node-verify-client=true
     networks:
       conduit:
         ipv4_address: 192.168.20.31
+
   rqlite-2:
-    image: rqlite/rqlite:7.21.4
-    build:
-      context: .
-      dockerfile: Dockerfile.rqlite
-      args:
-        - RQLITE_VERSION=v7.21.4
+    image: rqlite/rqlite:10.1.0
     container_name: rqlite-2
     hostname: rqlite-2.example.com
     restart: unless-stopped
@@ -342,28 +334,25 @@ services:
       - /etc/conduit/rqlite-2:/rqlite/file
     command:
       - -node-id=2
-      - -on-disk=true
       - -http-ca-cert=/conduit/conduit_internal_ca.pem
       - -http-cert=/conduit/rqlite_server_cert.pem
       - -http-key=/conduit/rqlite_server_key.pem
-      - -http-verify-client=1
+      - -http-verify-client=true
       - -http-addr=192.168.20.32:4001
+      - -http-adv-addr=192.168.20.32:4001
       - -raft-addr=192.168.20.32:4002
-      - -join=https://192.168.20.31:4001
+      - -raft-adv-addr=192.168.20.32:4002
+      - -join=192.168.20.31:4002
       - -node-cert=/conduit/rqlite_server_cert.pem
       - -node-key=/conduit/rqlite_server_key.pem
       - -node-ca-cert=/conduit/conduit_internal_ca.pem
-      - -node-verify-client=1
+      - -node-verify-client=true
     networks:
       conduit:
         ipv4_address: 192.168.20.32
+
   rqlite-3:
-    image: rqlite/rqlite:7.21.4
-    build:
-      context: .
-      dockerfile: Dockerfile.rqlite
-      args:
-        - RQLITE_VERSION=v7.21.4
+    image: rqlite/rqlite:10.1.0
     container_name: rqlite-3
     hostname: rqlite-3.example.com
     restart: unless-stopped
@@ -374,18 +363,19 @@ services:
       - /etc/conduit/rqlite-3:/rqlite/file
     command:
       - -node-id=3
-      - -on-disk=true
       - -http-ca-cert=/conduit/conduit_internal_ca.pem
       - -http-cert=/conduit/rqlite_server_cert.pem
       - -http-key=/conduit/rqlite_server_key.pem
-      - -http-verify-client=1
+      - -http-verify-client=true
       - -http-addr=192.168.20.33:4001
+      - -http-adv-addr=192.168.20.33:4001
       - -raft-addr=192.168.20.33:4002
-      - -join=https://192.168.20.31:4001
+      - -raft-adv-addr=192.168.20.33:4002
+      - -join=192.168.20.31:4002
       - -node-cert=/conduit/rqlite_server_cert.pem
       - -node-key=/conduit/rqlite_server_key.pem
       - -node-ca-cert=/conduit/conduit_internal_ca.pem
-      - -node-verify-client=1
+      - -node-verify-client=true
     networks:
       conduit:
         ipv4_address: 192.168.20.33

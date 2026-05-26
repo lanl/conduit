@@ -12,7 +12,7 @@ The etcd key for an errant path is this format:
 errors/<username>/<url encoded path>
 ```
 
-The value is an RFC3339 formatted timestamp. This timestamp is used to lock out a user from using conduit if this errant path isn't resolved by the configured amount of time (see `errant-lock` in `conduit-config.yaml`).
+The value is an RFC3339 formatted timestamp. This timestamp is used to lock out a user from using conduit if this errant path isn't resolved by the configured amount of time (see `errant-lock` in `conduit-server-config.yaml`).
 
 ### Example using etcdctl:
 
