@@ -44,7 +44,7 @@ func init() {
 	}
 
 	// global flags
-	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", fmt.Sprintf("config file (default is %s/%s.%s)", homeDir(), configName, configType))
+	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", fmt.Sprintf("config file (default is %s%s.%s)", defaultSystemConfigLocation, configName, configType))
 	RootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "enable debugging")
 
 	RootCmd.PersistentFlags().IntP("port", "p", defaults.DefaultConduitPort, "Port of the conduit server")

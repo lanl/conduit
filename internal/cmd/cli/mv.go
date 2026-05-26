@@ -32,6 +32,7 @@ var mvCmd = &cobra.Command{
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
+			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 		if len(args) < 2 {
 			fmt.Println("mv requires at least two arguments")

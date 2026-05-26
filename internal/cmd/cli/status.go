@@ -74,6 +74,7 @@ var statusCmd = &cobra.Command{
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
+			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 
 		// If query strings are specified, assign it

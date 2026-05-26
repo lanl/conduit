@@ -5,8 +5,6 @@ FROM conduit-cli:latest AS conduit-cli
 
 FROM docker.io/library/golang:${GOVER}-alpine
 
-COPY --from=conduit-cli /sbin/conduit /sbin/conduit
-
 ARG DEFAULT_REALM="EXAMPLE.COM"
 ARG KDC_HOSTNAME="kdc.example.com"
 ARG DEFAULT_DOMAIN="example.com"
@@ -24,18 +22,19 @@ RUN apk add --no-cache \
 
 RUN adduser -D -u 1433 testuser
 
-# Copy Python client
-COPY clients/python /home/testuser/conduit-python 
-
-RUN chown -R testuser:testuser /home/testuser/conduit-python
-
-
 RUN sed -i --regexp-extended "s/#(\s+default_realm = )\S+/\1$DEFAULT_REALM/" /etc/krb5.conf \
     && sed -i --regexp-extended "s/(default_ccache_name = )\S+/\1$DEFAULT_CCACHE_NAME/" /etc/krb5.conf \
     && sed -i --regexp-extended "s/(\[realms\])/\1\n\t$DEFAULT_REALM = {\n\t\tkdc = $KDC_HOSTNAME\n\t\tadmin_server = $KDC_HOSTNAME\n\t\tdefault_domain = $DEFAULT_DOMAIN\n\t}/" /etc/krb5.conf \
     && sed -i --regexp-extended "s/(\[domain_realm\])/\1\n\t.$DEFAULT_DOMAIN = $DEFAULT_REALM\n\t$DEFAULT_DOMAIN = $DEFAULT_REALM/" /etc/krb5.conf \
     && echo -e "[kdc]\n\tprofile = /var/kerberos/krb5kdc/kdc.conf\n" >> /etc/krb5.conf \
     && echo -e "[pam]\n\tdebug = false\n\tticket_lifetime = $TICKET_LIFETIME\n\trenew_lifetime = $RENEW_LIFETIME\n\tforwardable = true\n\tkrb4_convert = false\n" >> /etc/krb5.conf
+
+COPY --from=conduit-cli /sbin/conduit /sbin/conduit
+
+# Copy Python client into the client container
+COPY clients/python /home/testuser/conduit-python 
+
+RUN chown -R testuser:testuser /home/testuser/conduit-python
 
 COPY examples/docker/client-entrypoint.sh /etc/conduit/
 ENTRYPOINT ["/etc/conduit/client-entrypoint.sh"]

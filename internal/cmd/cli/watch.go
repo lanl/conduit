@@ -44,6 +44,7 @@ var watchCmd = &cobra.Command{
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
+			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 
 		// If transfer ID(s) are specified, assign it/them

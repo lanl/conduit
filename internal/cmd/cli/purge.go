@@ -38,6 +38,7 @@ var purgeCmd = &cobra.Command{
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
+			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 
 		clientCertKeyBundle, err := cmd.Flags().GetString("cert-key-bundle")

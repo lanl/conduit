@@ -179,7 +179,6 @@ services:
       - ./config_files/conduit-cli-config.yaml:/etc/conduit/conduit-cli-config.yaml:ro
       - /etc/conduit/conduit_fs_1:/mnt/fs_1
       - /etc/conduit/conduit_fs_2:/mnt/fs_2
-      - ../../clients/python:/home/testuser/conduit-python
     networks:
       conduit:
         ipv4_address: 192.168.20.4

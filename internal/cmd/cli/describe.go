@@ -202,6 +202,7 @@ var describeCmd = &cobra.Command{
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
+			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 
 		// If transfer ID is specified, assign it
