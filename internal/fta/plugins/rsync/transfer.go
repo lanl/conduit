@@ -16,10 +16,8 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 var rsyncProgressRe = regexp.MustCompile(
@@ -71,7 +69,19 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 	realSize := len(argTest) + int(unsafe.Sizeof(argTest))
 	p.log.Debugf("real size of args: %d", realSize)
 
-	rsyncLocation := viper.GetString(defaults.ConfigRsyncPathKey)
+	pc, err := plugin.GetPluginConfigsFromViper(RsyncPluginKey)
+	if err != nil {
+		return plugin.PluginErrors{
+			Errors: []*plugin.FTAPathError{
+				{
+					PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
+					ErrMessage: fmt.Errorf("failed to get rsync config: %v", err),
+				},
+			},
+		}
+	}
+	rsyncLocation := pc.(ViperRsyncPluginConfig).RsyncPath
+
 	cmd := exec.Command(rsyncLocation, args...)
 
 	stdoutp, err := cmd.StdoutPipe()

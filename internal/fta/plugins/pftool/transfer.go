@@ -17,10 +17,8 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 )
 
 func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action proto.Action, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
@@ -86,7 +84,20 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 
 	cmdContext, cmdCancel := context.WithCancelCause(context.Background())
 
-	pfcpLocation := viper.GetString(defaults.ConfigPftoolPathKey)
+	pc, err := plugin.GetPluginConfigsFromViper(PftoolPluginKey)
+	if err != nil {
+		cmdCancel(fmt.Errorf("failed to get pftool config: %v", err))
+		return plugin.PluginErrors{
+			Errors: []*plugin.FTAPathError{
+				{
+					PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
+					ErrMessage: fmt.Errorf("failed to get pftool config: %v", err),
+				},
+			},
+		}
+	}
+	pfcpLocation := pc.(ViperPftoolPluginConfig).PfcpPath
+
 	cmd := exec.CommandContext(cmdContext, pfcpLocation, args...)
 
 	stdoutp, err := cmd.StdoutPipe()
@@ -148,18 +159,11 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	p.log.Infof("pfcp command: %v", cmd.Args)
 
 	go func() {
-		pftoolTimeout := DefaultPftoolTimeoutHours
-		pftoolTimeoutAny, ok := pluginData.DestinationPluginInfo.FSC.CustomPluginConfig[CustomPluginConfigPftoolTimeoutHours]
-		if !ok {
+		pftoolTimeout := pc.(ViperPftoolPluginConfig).TimeoutHours
+
+		if pftoolTimeout == 0 {
+			p.log.Warnf("pftool timeout was set to 0 in the config using default value: %v", DefaultPftoolTimeoutHours)
 			pftoolTimeout = DefaultPftoolTimeoutHours
-		} else {
-			pftoolTimeout, ok = pftoolTimeoutAny.(int)
-			if !ok {
-				cmdCancel(fmt.Errorf("expected int for %q, got %T", CustomPluginConfigPftoolTimeoutHours, pftoolTimeoutAny))
-				return
-			} else if pftoolTimeout == 0 {
-				pftoolTimeout = DefaultPftoolTimeoutHours
-			}
 		}
 
 		timer := time.NewTimer(time.Duration(pftoolTimeout) * time.Hour)

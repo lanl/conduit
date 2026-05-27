@@ -108,7 +108,7 @@ func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.Tran
 
 func getTrashPathFromConfig(fsc *plugin.FileSystemConfig, cleanUserPath string, transferID uuid.UUID) (string, proto.Error, error) {
 	trashSub := ""
-	trashSubAny, ok := fsc.CustomPluginConfig[CustomPluginConfigTrashKey]
+	trashSubAny, ok := fsc.CustomPluginFSConfig[CustomPluginConfigTrashKey]
 	if !ok {
 		return "", proto.Error_ERROR_NONE, nil
 	} else {

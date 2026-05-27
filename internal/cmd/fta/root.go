@@ -274,14 +274,10 @@ func init() {
 	RootCmd.PersistentFlags().String("ca-cert", DefaultCACertLocation, "location of the ca cert .pem file")
 	RootCmd.PersistentFlags().IPSliceVar(&etcdIPs, "etcd-ip", DefaultETCDIPNet, "ip address(es) of etcd")
 	RootCmd.PersistentFlags().IntSliceVar(&etcdPorts, "etcd-port", DefaultETCDPort, "client port(s) of etcd")
-	RootCmd.PersistentFlags().String("pfcp", DefaultPFCPLocation, "location of the pfcp binary")
-	RootCmd.PersistentFlags().String("rsync", DefaultRsyncLocation, "location of rsync")
 
 	RootCmd.PersistentFlags().BoolP("encoded", "e", false, "Use if stdin is base64 encoded")
 
 	viper.BindPFlag(defaults.ConfigInternalCACertKey, RootCmd.PersistentFlags().Lookup("ca-cert"))
-	viper.BindPFlag(defaults.ConfigPftoolPathKey, RootCmd.PersistentFlags().Lookup("pfcp"))
-	viper.BindPFlag(defaults.ConfigRsyncPathKey, RootCmd.PersistentFlags().Lookup("rsync"))
 
 	RootCmd.AddCommand(validateCmd)
 	RootCmd.AddCommand(setupCmd)

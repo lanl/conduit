@@ -11,8 +11,8 @@ import (
 
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/etcd/util"
+	"github.com/lanl/conduit/internal/fta"
 	"github.com/lanl/conduit/internal/fta/plugin"
-	"github.com/lanl/conduit/internal/fta/plugins/pftool"
 	"github.com/lanl/conduit/internal/fta/plugins/posix"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -26,12 +26,8 @@ const (
 	DefaultCACertName           = "conduit_ca.pem"
 	DefaultExpiryUpdateInterval = "30s"
 	DefaultExpiryAdvance        = "5m"
-	DefaultPFCPLocation         = "/etc/pftool/bin/pfcp"
-	DefaultRsyncLocation        = "rsync"
 	DefaultVerifySleepDuration  = 5 * time.Second
 	DefaultVerifyRetryCount     = 20
-	DefaultMarchiveTMRequest    = "marchive-tmrequest"
-	DefaultMarchiveObjectList   = "mustang"
 )
 
 var (
@@ -56,9 +52,8 @@ var (
 			TeardownSrc: `posix`,
 			TeardownDst: `posix`,
 		},
-		CustomPluginConfig: map[string]any{
-			posix.CustomPluginConfigTrashKey:            ``,
-			pftool.CustomPluginConfigPftoolTimeoutHours: pftool.DefaultPftoolTimeoutHours,
+		CustomPluginFSConfig: map[string]any{
+			posix.CustomPluginConfigTrashKey: ``,
 		},
 	}
 	finalConfigPath = ""
@@ -94,6 +89,8 @@ func initConfig(cfgFile string) {
 		logrus.Errorf("failed to read config file: %v", err)
 	}
 
+	logrus.Infof("using fta config from: %v", viper.ConfigFileUsed())
+
 	// When we bind flags to environment variables expect that the
 	// environment variables are prefixed, e.g. a flag like --number
 	// binds to an environment variable STING_NUMBER. This helps
@@ -111,11 +108,16 @@ func createDefaultConfig() {
 
 	viper.SetDefault(defaults.ConfigExpiryIntervalKey, DefaultExpiryUpdateInterval)
 	viper.SetDefault(defaults.ConfigExpiryAdvanceKey, DefaultExpiryAdvance)
-	viper.SetDefault(defaults.ConfigPftoolPathKey, DefaultPFCPLocation)
-	viper.SetDefault(defaults.ConfigRsyncPathKey, DefaultRsyncLocation)
 
-	viper.SetDefault(defaults.ConfigMarchiveTMRequestKey, DefaultMarchiveTMRequest)
-	viper.SetDefault(defaults.ConfigMarchiveObjectListKey, DefaultMarchiveObjectList)
+	pluginConfs := map[string]any{}
+	for pluginKey, plugin := range fta.PluginMap {
+		pluginConfig := plugin.GetDefaultConfig()
+		if pluginConfig != nil {
+			pluginConfs[pluginKey] = pluginConfig
+		}
+	}
+
+	viper.SetDefault(defaults.ConfigPluginsKey, pluginConfs)
 
 	viper.SetDefault(defaults.ConfigFTAVerifyRetryCountKey, DefaultVerifyRetryCount)
 	viper.SetDefault(defaults.ConfigFTAVerifySleepDurationKey, DefaultVerifySleepDuration)

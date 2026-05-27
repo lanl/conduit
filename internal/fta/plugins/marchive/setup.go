@@ -9,9 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/fta/plugin"
-	"github.com/spf13/viper"
 )
 
 // Setup for marchive - used only when reading data from a marchive-backed MarFS filesystem. Calls the
@@ -19,8 +17,20 @@ import (
 // waits/hangs until this script completes, which occurs after the Tape Manager has completed all
 // READ jobs.
 func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
-	scriptRelPath := viper.GetString(defaults.ConfigMarchiveTMRequestKey) // Ensure this script exists and is executable
-	genRelPath := viper.GetString(defaults.ConfigMarchiveObjectListKey)   // The MarFS object list generation command
+	pc, err := plugin.GetPluginConfigsFromViper(MarchivePluginKey)
+	if err != nil {
+		return plugin.PluginErrors{
+			Errors: []*plugin.FTAPathError{
+				{
+					LeasePath:  "",
+					PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
+					ErrMessage: fmt.Errorf("failed to get marchive config: %v", err),
+				},
+			},
+		}, nil
+	}
+	scriptRelPath := pc.(ViperMarchivePluginConfig).TmrequestPath // Ensure this script exists and is executable
+	genRelPath := pc.(ViperMarchivePluginConfig).ObjlistPath      // The MarFS object list generation command
 
 	// pathInfo.TransferPath tells the transfer plugin what final path to use for its transfer
 	pathInfo.TransferPath = pathInfo.ResolvedFTAPath

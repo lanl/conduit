@@ -60,4 +60,6 @@ type ConduitFTAPlugin interface {
 	Transfer(transferID uuid.UUID, pluginData *PluginData, destInfo proto.DestInfo, action proto.Action, updateTransferProgress UpdateTransferProgress, updateAction UpdateAction) (pluginErrors PluginErrors)
 	// Teardown runs after Transfer
 	Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress UpdateTransferProgress) (pluginErrors PluginErrors)
+	// returns a default config for the plugin to be used in the conduit fta yaml config
+	GetDefaultConfig() any
 }

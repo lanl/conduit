@@ -42,8 +42,6 @@ filesystems:
     custom-plugin-config:
       # the posix plugin allows for moving sources to a trash location instead of removing during teardown
       posix-src-trash: ""
-      # the pftool plugin will kill pftool if it sees no change in file chunks after this many hours
-      pftool-no-progress-timeout-hours: 1
 fta:
   # number of retries conduit-fta will do when trying to set values in etcd. Useful if etcd slows when overwhelmed
   verify-retry-count: 20
@@ -53,6 +51,11 @@ plugins:
   pftool:
     # path to pfcp binary
     pfcp-path: /etc/pftool/bin/pfcp
+    # the pftool plugin will kill pftool if it sees no change in file chunks after this many hours
+    pftool-no-progress-timeout-hours: 1
   rsync:
     # path to rsync binary
     rsync-path: rsync
+  marchive:
+    objlist-path:
+    tmrequest-path:

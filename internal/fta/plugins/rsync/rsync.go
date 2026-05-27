@@ -9,7 +9,16 @@ import (
 	"github.com/lanl/conduit/internal/logger"
 )
 
+const (
+	RsyncPluginKey       = "rsync"
+	DefaultRsyncLocation = "rsync"
+)
+
 var _ plugin.ConduitFTAPlugin = (*RsyncPlugin)(nil)
+
+type ViperRsyncPluginConfig struct {
+	RsyncPath string `mapstructure:"rsync-path" yaml:"rsync-path"`
+}
 
 type RsyncPlugin struct {
 	log        *logger.ConduitLogger
@@ -46,4 +55,10 @@ func (p *RsyncPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInf
 // no op
 func (p *RsyncPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (_ plugin.PluginErrors) {
 	return plugin.PluginErrors{}
+}
+
+func (p *RsyncPlugin) GetDefaultConfig() any {
+	return ViperRsyncPluginConfig{
+		RsyncPath: DefaultRsyncLocation,
+	}
 }

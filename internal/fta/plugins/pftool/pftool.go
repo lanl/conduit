@@ -10,11 +10,17 @@ import (
 )
 
 const (
-	CustomPluginConfigPftoolTimeoutHours = "pftool-no-progress-timeout-hours"
-	DefaultPftoolTimeoutHours            = 1
+	DefaultPftoolTimeoutHours = 1
+	PftoolPluginKey           = "pftool"
+	DefaultPFCPLocation       = "/etc/pftool/bin/pfcp"
 )
 
 var _ plugin.ConduitFTAPlugin = (*PftoolPlugin)(nil)
+
+type ViperPftoolPluginConfig struct {
+	PfcpPath     string `mapstructure:"pfcp-path" yaml:"pfcp-path"`
+	TimeoutHours int    `mapstructure:"no-progress-timeout-hours" yaml:"no-progress-timeout-hours"`
+}
 
 type PftoolPlugin struct {
 	log        *logger.ConduitLogger
@@ -51,4 +57,11 @@ func (p *PftoolPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathIn
 // no op
 func (p *PftoolPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (_ plugin.PluginErrors) {
 	return plugin.PluginErrors{}
+}
+
+func (p *PftoolPlugin) GetDefaultConfig() any {
+	return ViperPftoolPluginConfig{
+		PfcpPath:     DefaultPFCPLocation,
+		TimeoutHours: DefaultPftoolTimeoutHours,
+	}
 }

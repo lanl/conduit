@@ -64,7 +64,12 @@ filesystems:
 fta:
   verify-retry-count: 20
   verify-sleep-duration: 5s
-pftool:
-  pfcp-Path: /etc/pftool/bin/pfcp
-rsync:
-  rsync-Path: rsync
+plugins:
+  pftool:
+    # path to pfcp binary
+    pfcp-path: /etc/pftool/bin/pfcp
+    # the pftool plugin will kill pftool if it sees no change in file chunks after this many hours
+    pftool-no-progress-timeout-hours: 1
+  rsync:
+    # path to rsync binary
+    rsync-path: rsync
