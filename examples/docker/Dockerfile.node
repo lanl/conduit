@@ -7,7 +7,9 @@ FROM rockylinux:8
 # RUN dnf update -y \
 #     && dnf install -y git \
 #     && adduser -u 1433 testuser
-RUN adduser -u 1433 testuser
+RUN adduser -u 1433 testuser \
+    && groupadd -g 1434 testgroup \
+    && usermod -aG testgroup testuser
 
 # add pftool stuff
 RUN dnf install -y mpi openmpi-devel openssl-devel openssh-server python3 rsync \
