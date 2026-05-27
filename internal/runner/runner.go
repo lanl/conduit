@@ -199,25 +199,10 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 		return
 	}
 
-	// Getting the user from the system
-	u, err := user.Lookup(transfer.GetUser())
+	// Getting the users credentials
+	cred, err := getCredentials(transfer.GetUser())
 	if err != nil {
-		dErr = fmt.Errorf("error getting user[%s]: %v", transfer.GetUser(), err)
-		r.log.Error(dErr)
-		return
-	}
-
-	// Parsing the uid and gid
-	uid, err := strconv.ParseInt(u.Uid, 10, 32)
-	if err != nil {
-		dErr = fmt.Errorf("could not parse in the uid %v", err)
-		r.log.Error(dErr)
-		return
-	}
-
-	gid, err := strconv.ParseInt(u.Gid, 10, 32)
-	if err != nil {
-		dErr = fmt.Errorf("could not parse in the gid %v", err)
+		dErr = fmt.Errorf("failed to get user credentials for %v: %v", transfer.GetUser(), err)
 		r.log.Error(dErr)
 		return
 	}
@@ -263,13 +248,14 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 	cmd.Stderr = errBuffer
 
 	// getting the credentials so we can switch to the new user
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	r.log.Infof("running %s for transfer %s with uid: %v gid: %v", req.GetCmd(), transfer.GetTransferID(), uid, gid)
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Credential: cred,
+	}
+	r.log.Infof("running %s for transfer %s with uid: %v gid: %v, groups: %v", req.GetCmd(), transfer.GetTransferID(), cred.Uid, cred.Gid, cred.Groups)
 
 	fErr := cmd.Run()
 	if fErr != nil {
-		dErr = fmt.Errorf("error running command[%v]: %v", strings.Join(append([]string{ftaPath}, cmdArgs...), " "), fErr)
+		dErr = fmt.Errorf("error running command[%v]: %v %v", strings.Join(append([]string{ftaPath}, cmdArgs...), " "), fErr, errBuffer.String())
 		r.log.Error(dErr)
 		r.log.Errorf("Command stderr: %v", errBuffer.String())
 		r.log.Errorf("Command stdout: %v", outBuffer.String())
@@ -459,4 +445,52 @@ func (r *Runner) signalHandler() {
 
 	r.log.Infof("shutting down")
 	os.Exit(0)
+}
+
+func getCredentials(username string) (*syscall.Credential, error) {
+	u, err := user.Lookup(username)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup user[%v]: %v", username, err)
+	}
+
+	uid64, err := strconv.ParseUint(u.Uid, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse uid %q: %w", u.Uid, err)
+	}
+
+	gid64, err := strconv.ParseUint(u.Gid, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse primary gid %q: %w", u.Gid, err)
+	}
+
+	groupIDs, err := u.GroupIds()
+	if err != nil {
+		return nil, err
+	}
+
+	groups := make([]uint32, 0, len(groupIDs))
+	seen := map[uint32]bool{}
+
+	for _, s := range groupIDs {
+		g64, err := strconv.ParseUint(s, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("parse supplementary gid %q: %w", s, err)
+		}
+
+		g := uint32(g64)
+
+		// Optional: don't duplicate the primary gid in supplementary groups.
+		if g == uint32(gid64) || seen[g] {
+			continue
+		}
+
+		groups = append(groups, g)
+		seen[g] = true
+	}
+
+	return &syscall.Credential{
+		Uid:    uint32(uid64),
+		Gid:    uint32(gid64),
+		Groups: groups,
+	}, nil
 }
