@@ -40,10 +40,10 @@ ln -s $(pwd)/conduit /usr/local/bin/conduit
 
 ```yaml
 auth:
-  external-ca-cert: /etc/conduit/keys/conduit_external_ca.pem
-  external-ca-key: /etc/conduit/keys/conduit_external_key.pem
-  internal-ca-cert: /etc/conduit/keys/conduit_internal_ca.pem
-  internal-ca-key: /etc/conduit/keys/conduit_internal_key.pem
+  external-ca-cert: /etc/conduit/keys/conduit-external-ca.pem
+  external-ca-key: /etc/conduit/keys/conduit-external-key.pem
+  internal-ca-cert: /etc/conduit/keys/conduit-internal-ca.pem
+  internal-ca-key: /etc/conduit/keys/conduit-internal-key.pem
   keytab: /etc/krb5.keytab
   requested-cert-lifetime: 24h
 errant-lock: 336h
@@ -159,8 +159,8 @@ done
 conduit-server external-client-cert \
     -d \
     --separate-cert-key \
-    --cert-name conduit_slurm_cert.pem \
-    --key-name conduit_slurm_key.pem \
+    --cert-name conduit-slurm-cert.pem \
+    --key-name conduit-slurm-key.pem \
     --output /etc/conduit/keys/ \
     --client-commonname conduit-service \ // this CN is unique, do not change
     --expiration 365
@@ -169,8 +169,8 @@ conduit-server external-client-cert \
 conduit-server external-client-cert \
     -d \
     --separate-cert-key \
-    --cert-name conduit_admin_cert.pem \
-    --key-name conduit_admin_key.pem \
+    --cert-name conduit-admin-cert.pem \
+    --key-name conduit-admin-key.pem \
     --output /etc/conduit/keys/ \
     --client-commonname conduit-admin \ // this CN is unique, do not change
     --expiration 365
@@ -179,8 +179,8 @@ conduit-server external-client-cert \
 conduit-server internal-client-cert \
     -d \
     --separate-cert-key \
-    --cert-name etcd_client_cert.pem \
-    --key-name etcd_client_key.pem \
+    --cert-name etcd-client-cert.pem \
+    --key-name etcd-client-key.pem \
     --output /etc/conduit/keys/ \
     --expiration 365 \
     --client-commonname root
@@ -215,16 +215,16 @@ ETCD_LOG_LEVEL=debug
 ETCD_LOGGER=zap
 ETCD_LOG_OUTPUTS=default
 # server cert and key used for communicating with conduit
-ETCD_CERT_FILE=/var/lib/etcd/etcd_server_cert.pem
-ETCD_KEY_FILE=/var/lib/etcd/etcd_server_key.pem
+ETCD_CERT_FILE=/var/lib/etcd/etcd-server-cert.pem
+ETCD_KEY_FILE=/var/lib/etcd/etcd-server-key.pem
 # the conduit internal ca cert
-ETCD_TRUSTED_CA_FILE=/etc/conduit/keys/conduit_internal_ca.pem
+ETCD_TRUSTED_CA_FILE=/etc/conduit/keys/conduit-internal-ca.pem
 # enable mTLS for conduit communication
 ETCD_CLIENT_CERT_AUTH=1
 # cert used for communicating with other etcd nodes
-ETCD_PEER_CERT_FILE=/var/lib/etcd/etcd_server_cert.pem
-ETCD_PEER_KEY_FILE=/var/lib/etcd/etcd_server_key.pem
-ETCD_PEER_TRUSTED_CA_FILE=/etc/conduit/keys/conduit_internal_ca.pem
+ETCD_PEER_CERT_FILE=/var/lib/etcd/etcd-server-cert.pem
+ETCD_PEER_KEY_FILE=/var/lib/etcd/etcd-server-key.pem
+ETCD_PEER_TRUSTED_CA_FILE=/etc/conduit/keys/conduit-internal-ca.pem
 # enable mTLS for communication between etcd nodes
 ETCD_PEER_CLIENT_CERT_AUTH=1
 ```
@@ -260,13 +260,13 @@ RQLITE_RAFT_ADV_ADDR=192.168.0.18:4002
 # Raft address that nodes should use to join cluster (note: uses Raft port 4002, not HTTP port)
 RQLITE_JOIN=192.168.0.18:4002
 # server cert and key used for communicating with conduit
-RQLITE_CA_PATH=/etc/conduit/keys/conduit_internal_ca.pem
-RQLITE_CERT_PATH=/var/lib/rqlite/rqlite_server_cert.pem
-RQLITE_KEY_PATH=/var/lib/rqlite/rqlite_server_key.pem
+RQLITE_CA_PATH=/etc/conduit/keys/conduit-internal-ca.pem
+RQLITE_CERT_PATH=/var/lib/rqlite/rqlite-server-cert.pem
+RQLITE_KEY_PATH=/var/lib/rqlite/rqlite-server-key.pem
 # cert used for communicating with other rqlite nodes
-RQLITE_PEER_CA_PATH=/etc/conduit/keys/conduit_internal_ca.pem
-RQLITE_PEER_CERT_PATH=/var/lib/rqlite/rqlite_server_cert.pem
-RQLITE_PEER_KEY_PATH=/var/lib/rqlite/rqlite_server_key.pem
+RQLITE_PEER_CA_PATH=/etc/conduit/keys/conduit-internal-ca.pem
+RQLITE_PEER_CERT_PATH=/var/lib/rqlite/rqlite-server-cert.pem
+RQLITE_PEER_KEY_PATH=/var/lib/rqlite/rqlite-server-key.pem
 ```
 
 5. Install [service file](./service/rqlite.service) in /usr/lib/systemd/system/rqlite.service
@@ -299,8 +299,8 @@ systemctl start conduit-server
 
 ```yaml
 auth:
-  internal-ca-cert: /etc/conduit/keys/conduit_internal_ca.pem
-  internal-ca-key: /etc/conduit/keys/conduit_internal_key.pem
+  internal-ca-cert: /etc/conduit/keys/conduit-internal-ca.pem
+  internal-ca-key: /etc/conduit/keys/conduit-internal-key.pem
 etcd:
   - hostname: db-node1.example.com
     ip: 192.168.0.18
@@ -345,7 +345,7 @@ systemctl start conduit-runner
 
 ```yaml
 auth:
-  internal-ca-cert: /etc/conduit/keys/conduit_internal_ca.pem
+  internal-ca-cert: /etc/conduit/keys/conduit-internal-ca.pem
 conduit:
   expiry-advance: 5m
   expiry-interval: 30s

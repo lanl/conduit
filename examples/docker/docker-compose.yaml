@@ -209,13 +209,13 @@ services:
       - --log-level=debug
       - --logger=zap
       - --log-outputs=stderr
-      - --cert-file=/conduit/etcd_server_cert.pem
-      - --key-file=/conduit/etcd_server_key.pem
+      - --cert-file=/conduit/etcd-server-cert.pem
+      - --key-file=/conduit/etcd-server-key.pem
       - --client-cert-auth
-      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-cert-file=/conduit/etcd_server_cert.pem
-      - --peer-key-file=/conduit/etcd_server_key.pem
-      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --trusted-ca-file=/conduit/conduit-internal-ca.pem
+      - --peer-cert-file=/conduit/etcd-server-cert.pem
+      - --peer-key-file=/conduit/etcd-server-key.pem
+      - --peer-trusted-ca-file=/conduit/conduit-internal-ca.pem
       - --peer-client-cert-auth
       - --quota-backend-bytes=8589934592
     networks:
@@ -245,13 +245,13 @@ services:
       - --log-level=debug
       - --logger=zap
       - --log-outputs=stderr
-      - --cert-file=/conduit/etcd_server_cert.pem
-      - --key-file=/conduit/etcd_server_key.pem
+      - --cert-file=/conduit/etcd-server-cert.pem
+      - --key-file=/conduit/etcd-server-key.pem
       - --client-cert-auth
-      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-cert-file=/conduit/etcd_server_cert.pem
-      - --peer-key-file=/conduit/etcd_server_key.pem
-      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --trusted-ca-file=/conduit/conduit-internal-ca.pem
+      - --peer-cert-file=/conduit/etcd-server-cert.pem
+      - --peer-key-file=/conduit/etcd-server-key.pem
+      - --peer-trusted-ca-file=/conduit/conduit-internal-ca.pem
       - --peer-client-cert-auth
       - --quota-backend-bytes=8589934592
     networks:
@@ -281,13 +281,13 @@ services:
       - --log-level=debug
       - --logger=zap
       - --log-outputs=stderr
-      - --cert-file=/conduit/etcd_server_cert.pem
-      - --key-file=/conduit/etcd_server_key.pem
+      - --cert-file=/conduit/etcd-server-cert.pem
+      - --key-file=/conduit/etcd-server-key.pem
       - --client-cert-auth
-      - --trusted-ca-file=/conduit/conduit_internal_ca.pem
-      - --peer-cert-file=/conduit/etcd_server_cert.pem
-      - --peer-key-file=/conduit/etcd_server_key.pem
-      - --peer-trusted-ca-file=/conduit/conduit_internal_ca.pem
+      - --trusted-ca-file=/conduit/conduit-internal-ca.pem
+      - --peer-cert-file=/conduit/etcd-server-cert.pem
+      - --peer-key-file=/conduit/etcd-server-key.pem
+      - --peer-trusted-ca-file=/conduit/conduit-internal-ca.pem
       - --peer-client-cert-auth
       - --quota-backend-bytes=8589934592
     networks:
@@ -306,17 +306,17 @@ services:
       - /etc/conduit/rqlite-1:/rqlite/file
     command:
       - -node-id=1
-      - -http-ca-cert=/conduit/conduit_internal_ca.pem
-      - -http-cert=/conduit/rqlite_server_cert.pem
-      - -http-key=/conduit/rqlite_server_key.pem
+      - -http-ca-cert=/conduit/conduit-internal-ca.pem
+      - -http-cert=/conduit/rqlite-server-cert.pem
+      - -http-key=/conduit/rqlite-server-key.pem
       - -http-verify-client=true
       - -http-addr=192.168.20.31:4001
       - -http-adv-addr=192.168.20.31:4001
       - -raft-addr=192.168.20.31:4002
       - -raft-adv-addr=192.168.20.31:4002
-      - -node-cert=/conduit/rqlite_server_cert.pem
-      - -node-key=/conduit/rqlite_server_key.pem
-      - -node-ca-cert=/conduit/conduit_internal_ca.pem
+      - -node-cert=/conduit/rqlite-server-cert.pem
+      - -node-key=/conduit/rqlite-server-key.pem
+      - -node-ca-cert=/conduit/conduit-internal-ca.pem
       - -node-verify-client=true
     networks:
       conduit:
@@ -334,18 +334,18 @@ services:
       - /etc/conduit/rqlite-2:/rqlite/file
     command:
       - -node-id=2
-      - -http-ca-cert=/conduit/conduit_internal_ca.pem
-      - -http-cert=/conduit/rqlite_server_cert.pem
-      - -http-key=/conduit/rqlite_server_key.pem
+      - -http-ca-cert=/conduit/conduit-internal-ca.pem
+      - -http-cert=/conduit/rqlite-server-cert.pem
+      - -http-key=/conduit/rqlite-server-key.pem
       - -http-verify-client=true
       - -http-addr=192.168.20.32:4001
       - -http-adv-addr=192.168.20.32:4001
       - -raft-addr=192.168.20.32:4002
       - -raft-adv-addr=192.168.20.32:4002
       - -join=192.168.20.31:4002
-      - -node-cert=/conduit/rqlite_server_cert.pem
-      - -node-key=/conduit/rqlite_server_key.pem
-      - -node-ca-cert=/conduit/conduit_internal_ca.pem
+      - -node-cert=/conduit/rqlite-server-cert.pem
+      - -node-key=/conduit/rqlite-server-key.pem
+      - -node-ca-cert=/conduit/conduit-internal-ca.pem
       - -node-verify-client=true
     networks:
       conduit:
@@ -363,18 +363,18 @@ services:
       - /etc/conduit/rqlite-3:/rqlite/file
     command:
       - -node-id=3
-      - -http-ca-cert=/conduit/conduit_internal_ca.pem
-      - -http-cert=/conduit/rqlite_server_cert.pem
-      - -http-key=/conduit/rqlite_server_key.pem
+      - -http-ca-cert=/conduit/conduit-internal-ca.pem
+      - -http-cert=/conduit/rqlite-server-cert.pem
+      - -http-key=/conduit/rqlite-server-key.pem
       - -http-verify-client=true
       - -http-addr=192.168.20.33:4001
       - -http-adv-addr=192.168.20.33:4001
       - -raft-addr=192.168.20.33:4002
       - -raft-adv-addr=192.168.20.33:4002
       - -join=192.168.20.31:4002
-      - -node-cert=/conduit/rqlite_server_cert.pem
-      - -node-key=/conduit/rqlite_server_key.pem
-      - -node-ca-cert=/conduit/conduit_internal_ca.pem
+      - -node-cert=/conduit/rqlite-server-cert.pem
+      - -node-key=/conduit/rqlite-server-key.pem
+      - -node-ca-cert=/conduit/conduit-internal-ca.pem
       - -node-verify-client=true
     networks:
       conduit:

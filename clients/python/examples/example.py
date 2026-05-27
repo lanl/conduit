@@ -6,7 +6,7 @@ from conduit._generated import api_pb2
 
 def main() -> None:
     conduit_addr = "conduit-server.example.com:23456"
-    ca_path = "/etc/conduit/keys/conduit_external_ca.pem"
+    ca_path = "/etc/conduit/keys/conduit-external-ca.pem"
     bundle_path = "/home/testuser/.conduit-cert-key-bundle.pem"
 
     cfg = ConduitClientConfig(

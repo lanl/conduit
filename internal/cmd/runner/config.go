@@ -20,8 +20,8 @@ const (
 	ConfigName                = "conduit-runner-config"
 	ConfigType                = "yaml"
 	envPrefix                 = "CONDUIT_RUNNER"
-	DefaultInternalCACertName = "conduit_internal_ca.pem"
-	DefaultInternalCAKeyName  = "conduit_internal_key.pem"
+	DefaultInternalCACertName = "conduit-internal-ca.pem"
+	DefaultInternalCAKeyName  = "conduit-internal-key.pem"
 	DefaultFTAPath            = "conduit-fta"
 )
 

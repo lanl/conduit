@@ -19,9 +19,9 @@ Conduit organizes data in ETCD using a hierarchical prefix structure:
 Set up environment variables for convenience:
 
 ```bash
-export ETCD_CERT=/etc/conduit/keys/etcd_client_cert.pem
-export ETCD_KEY=/etc/conduit/keys/etcd_client_key.pem
-export ETCD_CA=/etc/conduit/keys/conduit_internal_ca.pem
+export ETCD_CERT=/etc/conduit/keys/etcd-client-cert.pem
+export ETCD_KEY=/etc/conduit/keys/etcd-client-key.pem
+export ETCD_CA=/etc/conduit/keys/conduit-internal-ca.pem
 export ETCD_ENDPOINTS=192.168.0.254:2379
 ```
 

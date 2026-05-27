@@ -23,7 +23,7 @@ const (
 	ConfigName                  = "conduit-fta-config"
 	ConfigType                  = "yaml"
 	envPrefix                   = "CONDUIT_FTA"
-	DefaultCACertName           = "conduit_ca.pem"
+	DefaultCACertName           = "conduit-ca.pem"
 	DefaultExpiryUpdateInterval = "30s"
 	DefaultExpiryAdvance        = "5m"
 	DefaultVerifySleepDuration  = 5 * time.Second

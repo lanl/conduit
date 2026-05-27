@@ -1,5 +1,5 @@
 auth:
-  internal-ca-cert: /etc/conduit/keys/conduit_internal_ca.pem
+  internal-ca-cert: /etc/conduit/keys/conduit-internal-ca.pem
 transfer:
   expiry-interval: 10s
   expiry-advance: 60s

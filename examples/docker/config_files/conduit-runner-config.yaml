@@ -1,6 +1,6 @@
 auth:
-  internal-ca-cert: /etc/conduit/keys/conduit_internal_ca.pem
-  internal-ca-key: /etc/conduit/keys/conduit_internal_key.pem
+  internal-ca-cert: /etc/conduit/keys/conduit-internal-ca.pem
+  internal-ca-key: /etc/conduit/keys/conduit-internal-key.pem
 
 server:
   ip:

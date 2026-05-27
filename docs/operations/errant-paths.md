@@ -20,9 +20,9 @@ The value is an RFC3339 formatted timestamp. This timestamp is used to lock out 
 # adding errant path for testuser's errored data at /trashpath/testuser/erroreddata
 
 ./etcdctl \
---cert /conduit/admin/keys/etcd_client_cert.pem \
---key /conduit/admin/keys/etcd_client_key.pem \
---cacert /conduit/conduit-server/keys/conduit_internal_ca.pem \
+--cert /conduit/admin/keys/etcd-client-cert.pem \
+--key /conduit/admin/keys/etcd-client-key.pem \
+--cacert /conduit/conduit-server/keys/conduit-internal-ca.pem \
 --endpoints=<ip-address-of-etcd-server>:2379 \
 put errors/testuser/%2Ftrashpath%2Ftestuser%2Ferroreddata 2023-09-24T15:30:00+09:00
 ```
@@ -62,9 +62,9 @@ Etcdctl or another etcd client can be used as an alternative to conduit-cli and 
 # removing an errant path for testuser's errored data at /trashpath/testuser/erroreddata
 
 ./etcdctl \
---cert /conduit/admin/keys/etcd_client_cert.pem \
---key /conduit/admin/keys/etcd_client_key.pem \
---cacert /conduit/conduit-server/keys/conduit_internal_ca.pem \
+--cert /conduit/admin/keys/etcd-client-cert.pem \
+--key /conduit/admin/keys/etcd-client-key.pem \
+--cacert /conduit/conduit-server/keys/conduit-internal-ca.pem \
 --endpoints=<ip-address-of-etcd-server>:2379 \
 del errors/testuser/%2Ftrashpath%2Ftestuser%2Ferroreddata
 ```

@@ -1,8 +1,8 @@
 auth:
-  internal-ca-Cert: /etc/conduit/keys/conduit_internal_ca.pem
-  internal-ca-Key: /etc/conduit/keys/conduit_internal_key.pem
-  external-ca-Cert: /etc/conduit/keys/conduit_external_ca.pem
-  external-ca-Key: /etc/conduit/keys/conduit_external_key.pem
+  internal-ca-cert: /etc/conduit/keys/conduit-internal-ca.pem
+  internal-ca-key: /etc/conduit/keys/conduit-internal-key.pem
+  external-ca-cert: /etc/conduit/keys/conduit-external-ca.pem
+  external-ca-key: /etc/conduit/keys/conduit-external-key.pem
   keytab: /etc/conduit/keys/conduit.keytab
   requested-cert-lifetime: 720h
 errant-lock: 336h
