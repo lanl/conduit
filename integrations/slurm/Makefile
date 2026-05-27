@@ -35,7 +35,7 @@ tarball: check dist
 	@rm -rf dist/$(TOPDIR)/*
 	@cp -a $(FILES) $(BIN) dist/$(TOPDIR)/
 	@if [ -f LICENSE ]; then cp -a LICENSE dist/$(TOPDIR)/; fi
-	@if [ -f README.md ]; then cp -a README.md dist/$(TOPDIR)/; fi
+	@if [ -f ../../docs/integrations/slurm-plugin.md ]; then cp -a ../../docs/integrations/slurm-plugin.md dist/$(TOPDIR)/; fi
 	@tar -C dist -czf $(TARBALL) $(TOPDIR)
 	@echo "Wrote $(TARBALL)"
 

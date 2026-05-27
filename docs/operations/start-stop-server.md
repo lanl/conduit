@@ -15,8 +15,8 @@ Use `conduit control` commands to manage server state. Target a specific instanc
 Put the server in drain mode to gracefully stop accepting new transfers:
 
 ```bash
-conduit --cert /etc/conduit/keys/conduit_admin_cert.pem \
-  --key /etc/conduit/keys/conduit_admin_key.pem \
+conduit --cert /etc/conduit/keys/conduit-admin-cert.pem \
+  --key /etc/conduit/keys/conduit-admin-key.pem \
   control drain
 ```
 
@@ -32,8 +32,8 @@ conduit --cert /etc/conduit/keys/conduit_admin_cert.pem \
 Resume normal operation after draining:
 
 ```bash
-conduit --cert /etc/conduit/keys/conduit_admin_cert.pem \
-  --key /etc/conduit/keys/conduit_admin_key.pem \
+conduit --cert /etc/conduit/keys/conduit-admin-cert.pem \
+  --key /etc/conduit/keys/conduit-admin-key.pem \
   control start
 ```
 

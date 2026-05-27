@@ -58,10 +58,7 @@ const (
 	ConfigFTAVerifyRetryCountKey    = "fta.verify-retry-count"
 	ConfigFTAVerifySleepDurationKey = "fta.verify-sleep-duration"
 	ConfigFilesystemsKey            = "filesystems"
-	ConfigPftoolPathKey             = "plugins.pftool.pfcp-path"
-	ConfigRsyncPathKey              = "plugins.rsync.rsync-path"
-	ConfigMarchiveObjectListKey     = "plugins.marchive.objlist-path"
-	ConfigMarchiveTMRequestKey      = "plugins.marchive.tmrequest-path"
+	ConfigPluginsKey                = "plugins"
 
 	// CLI config keys
 	ConfigKrbConfigKey      = "krb.config"

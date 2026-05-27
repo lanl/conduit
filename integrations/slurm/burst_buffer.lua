@@ -2,9 +2,9 @@
 
 -- ====== CONFIG ======
 local CONDUIT_CLI = "/usr/sbin/conduit"
-local CONDUIT_CERT = "/etc/slurm/conduit-cert.pem"
-local CONDUIT_KEY = "/etc/slurm/conduit-key.pem"
-local CONDUIT_CA = "/etc/slurm/conduit-external-ca.pem"
+local CONDUIT_CERT = "/etc/conduit/conduit-slurm-cert.pem"
+local CONDUIT_KEY = "/etc/conduit/conduit-slurm-key.pem"
+local CONDUIT_CA = "/etc/conduit/conduit-external-ca.pem"
 local CONDUIT_CLI_CONFIG = "/etc/conduit/conduit-cli-config.yaml"
 
 

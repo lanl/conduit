@@ -10,10 +10,10 @@ import (
 	"github.com/lanl/conduit/internal/fta/plugins/rsync"
 )
 
-var pluginMap = map[string]plugin.ConduitFTAPlugin{
+var PluginMap = map[string]plugin.ConduitFTAPlugin{
 	// "staging": &staging.StagingPlugin{},
-	"rsync":    &rsync.RsyncPlugin{},
-	"posix":    &posix.PosixPlugin{},
-	"pftool":   &pftool.PftoolPlugin{},
-	"marchive": &marchive.MarchivePlugin{},
+	rsync.RsyncPluginKey:       &rsync.RsyncPlugin{},
+	posix.PosixPluginKey:       &posix.PosixPlugin{},
+	pftool.PftoolPluginKey:     &pftool.PftoolPlugin{},
+	marchive.MarchivePluginKey: &marchive.MarchivePlugin{},
 }

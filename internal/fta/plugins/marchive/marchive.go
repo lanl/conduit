@@ -9,7 +9,18 @@ import (
 	"github.com/lanl/conduit/internal/logger"
 )
 
+const (
+	MarchivePluginKey         = "marchive"
+	DefaultMarchiveTMRequest  = "marchive-tmrequest"
+	DefaultMarchiveObjectList = "mustang"
+)
+
 var _ plugin.ConduitFTAPlugin = (*MarchivePlugin)(nil)
+
+type ViperMarchivePluginConfig struct {
+	ObjlistPath   string `mapstructure:"objlist-path" yaml:"objlist-path"`
+	TmrequestPath string `mapstructure:"tmrequest-path" yaml:"tmrequest-path"`
+}
 
 type MarchivePlugin struct {
 	log        *logger.ConduitLogger
@@ -44,4 +55,11 @@ func (p *MarchivePlugin) ValidateDestination(sourceBases []string, userDestinati
 // no op
 func (p *MarchivePlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action proto.Action, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
 	return plugin.PluginErrors{}
+}
+
+func (p *MarchivePlugin) GetDefaultConfig() any {
+	return ViperMarchivePluginConfig{
+		ObjlistPath:   DefaultMarchiveObjectList,
+		TmrequestPath: DefaultMarchiveTMRequest,
+	}
 }

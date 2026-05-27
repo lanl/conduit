@@ -8,34 +8,35 @@ The Conduit Slurm plugin integrates Conduit data transfer capabilities with Slur
 
 1. Build the Conduit CLI binary:
 
-   ```bash
-   git clone https://github.com/lanl/conduit
-   cd conduit
-   go build -o conduit ./cmd/cli
-   ```
+```bash
+git clone https://github.com/lanl/conduit
+cd conduit
+go build -o conduit ./cmd/cli
+```
 
 2. Navigate to the Slurm plugin directory:
 
-   ```bash
-   cd integrations/slurm
-   ```
+```bash
+cd integrations/slurm
+```
 
 3. Copy the conduit binary:
 
-   ```bash
-   cp ../../conduit .
-   ```
+```bash
+cp ../../conduit .
+```
 
 4. Build the RPM package:
 
-   ```bash
-   make rpm
-   ```
+```bash
+make rpm
+```
 
 5. Install the RPM:
-   ```bash
-   sudo rpm -i conduit-slurm-plugin-*.rpm
-   ```
+
+```bash
+sudo rpm -i conduit-slurm-plugin-*.rpm
+```
 
 ### Manual Installation
 
@@ -102,9 +103,9 @@ The plugin requires a service certificate for authentication:
 # Generate a service certificate (from conduit server)
 conduit-server external-client-cert -d \
     --separate-cert-key \
-    --cert-name conduit_slurm_cert.pem \
-    --key-name conduit_slurm_key.pem \
-    --output /etc/slurm/ \
+    --cert-name conduit-slurm-cert.pem \
+    --key-name conduit-slurm-key.pem \
+    --output /etc/conduit/ \
     --client-commonname conduit-service \
     --expiration 365
 ```
@@ -112,7 +113,7 @@ conduit-server external-client-cert -d \
 Copy the CA certificate:
 
 ```bash
-cp /etc/conduit/keys/conduit_external_ca.pem /etc/slurm/
+cp /etc/conduit/keys/conduit-external-ca.pem /etc/slurm/
 ```
 
 ## Usage

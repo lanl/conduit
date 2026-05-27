@@ -70,10 +70,10 @@ cd $SCRIPT_DIR
 # generate CAs for conduit
 echo internal-ca:
 ../../bin/conduit-server internal-ca -d \
-    --internal-ca-cert $CONDUIT_PATH/keys/conduit_internal_ca.pem \
-    --internal-ca-key $CONDUIT_PATH/keys/conduit_internal_key.pem \
-    --external-ca-cert $CONDUIT_PATH/keys/conduit_external_ca.pem \
-    --external-ca-key $CONDUIT_PATH/keys/conduit_external_key.pem \
+    --internal-ca-cert $CONDUIT_PATH/keys/conduit-internal-ca.pem \
+    --internal-ca-key $CONDUIT_PATH/keys/conduit-internal-key.pem \
+    --external-ca-cert $CONDUIT_PATH/keys/conduit-external-ca.pem \
+    --external-ca-key $CONDUIT_PATH/keys/conduit-external-key.pem \
     --keytab $CONDUIT_PATH/keys/conduit.keytab \
     --hostname conduit-server.example.com \
     --ip 192.168.20.3 \
@@ -84,10 +84,10 @@ echo internal-ca:
 
 echo external-ca:
 ../../bin/conduit-server external-ca -d \
-    --internal-ca-cert $CONDUIT_PATH/keys/conduit_internal_ca.pem \
-    --internal-ca-key $CONDUIT_PATH/keys/conduit_internal_key.pem \
-    --external-ca-cert $CONDUIT_PATH/keys/conduit_external_ca.pem \
-    --external-ca-key $CONDUIT_PATH/keys/conduit_external_key.pem \
+    --internal-ca-cert $CONDUIT_PATH/keys/conduit-internal-ca.pem \
+    --internal-ca-key $CONDUIT_PATH/keys/conduit-internal-key.pem \
+    --external-ca-cert $CONDUIT_PATH/keys/conduit-external-ca.pem \
+    --external-ca-key $CONDUIT_PATH/keys/conduit-external-key.pem \
     --keytab $CONDUIT_PATH/keys/conduit.keytab \
     --hostname conduit-server.example.com \
     --ip 192.168.20.3,172.18.0.10 \
@@ -99,8 +99,8 @@ echo external-ca:
 echo internal-server-cert-etcd:
 ../../bin/conduit-server internal-server-cert -d \
     --separate-cert-key \
-    --cert-name etcd_server_cert.pem \
-    --key-name etcd_server_key.pem \
+    --cert-name etcd-server-cert.pem \
+    --key-name etcd-server-key.pem \
     --output $CONDUIT_PATH/keys/ \
     --server-ip 192.168.20.21,192.168.20.22,192.168.20.23 \
     --server-hostname etcd-1.example.com,etcd-2.example.com,etcd-3.example.com
@@ -108,16 +108,16 @@ echo internal-server-cert-etcd:
 echo internal-server-cert-rqlite:
 ../../bin/conduit-server internal-server-cert -d \
     --separate-cert-key \
-    --cert-name rqlite_server_cert.pem \
-    --key-name rqlite_server_key.pem \
+    --cert-name rqlite-server-cert.pem \
+    --key-name rqlite-server-key.pem \
     --output $CONDUIT_PATH/keys/ \
     --server-ip 192.168.20.31,192.168.20.32,192.168.20.33 \
     --server-hostname rqlite-1.example.com,rqlite-2.example.com,rqlite-3.example.com
 
 chown 1000:1000 -R \
-	"${CONDUIT_PATH}"/keys/rqlite_server_cert.pem \
-	"${CONDUIT_PATH}"/keys/rqlite_server_key.pem \
-	"${CONDUIT_PATH}"/keys/rqlite_server_key.pem \
+	"${CONDUIT_PATH}"/keys/rqlite-server-cert.pem \
+	"${CONDUIT_PATH}"/keys/rqlite-server-key.pem \
+	"${CONDUIT_PATH}"/keys/rqlite-server-key.pem \
 
 echo external-client-cert-dws:
 ../../bin/conduit-server external-client-cert -d \
@@ -131,8 +131,8 @@ echo external-client-cert-dws:
 echo external-client-cert-admin:
 ../../bin/conduit-server external-client-cert -d \
     --separate-cert-key \
-    --cert-name conduit_admin_cert.pem \
-    --key-name conduit_admin_key.pem \
+    --cert-name conduit-admin-cert.pem \
+    --key-name conduit-admin-key.pem \
     --output $CONDUIT_PATH/keys/ \
     --client-commonname conduit-admin \
     --expiration 365
@@ -140,8 +140,8 @@ echo external-client-cert-admin:
 echo etcd-client-cert:
 ../../bin/conduit-server internal-client-cert -d \
     --separate-cert-key \
-    --cert-name etcd_client_cert.pem \
-    --key-name etcd_client_key.pem \
+    --cert-name etcd-client-cert.pem \
+    --key-name etcd-client-key.pem \
     --output $CONDUIT_PATH/keys/ \
     --client-commonname root \
     --expiration 365

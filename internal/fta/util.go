@@ -236,7 +236,7 @@ func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, or
 
 	pluginString := fsc.PluginStages.Validation
 
-	pathPlugin, ok := pluginMap[pluginString]
+	pathPlugin, ok := PluginMap[pluginString]
 	if !ok {
 		return nil, &plugin.FTAPathError{
 			LeasePath:  originalUserPath,
@@ -361,7 +361,7 @@ func getPathPlugins(transferID uuid.UUID, log *logger.ConduitLogger, currentStep
 
 // getPluginFromString gets the actual ConduitFTAPlugin from a provided plugin string
 func getPluginFromString(log *logger.ConduitLogger, transferID uuid.UUID, currentStep plugin.PluginCapability, pluginString string) (plugin.ConduitFTAPlugin, proto.Error, error) {
-	pathPlugin, ok := pluginMap[pluginString]
+	pathPlugin, ok := PluginMap[pluginString]
 	if !ok {
 		return nil, proto.Error_ERROR_INVALID_CONDUIT_CONFIG, fmt.Errorf("failed to find [%v] in plugin map. plugin [%v] is not supported in this version of conduit-fta", pluginString, pluginString)
 	}

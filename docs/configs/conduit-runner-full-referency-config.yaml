@@ -1,8 +1,8 @@
 auth:
   # location of CA Cert used for internal connections to the conduit server API (ex: conduit-runner, conduit-fta, etcd, rqlite use this cert)
-  internal-ca-cert: /etc/conduit/conduit_internal_ca.pem
+  internal-ca-cert: /etc/conduit/conduit-internal-ca.pem
   # location of the paired key for the internal CA cert. Keep this safe
-  internal-ca-key: /etc/conduit/conduit_internal_key.pem
+  internal-ca-key: /etc/conduit/conduit-internal-key.pem
 # hostname, ip address, and port for the etcd nodes that this conduit instance will attempt to connect to. This will be etcd's `listen-client-urls` value. Hostname is used for mTLS certs
 etcd:
   - hostname: etcd.example.com

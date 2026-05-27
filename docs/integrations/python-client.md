@@ -24,7 +24,7 @@ from conduit import ConduitClient, ConduitClientConfig
 cfg = ConduitClientConfig(
     addr="conduit-server.example.com:23456",
     timeout_s=10.0,
-    ca_pem_path="/etc/conduit/keys/conduit_external_ca.pem",
+    ca_pem_path="/etc/conduit/keys/conduit-external-ca.pem",
     cert_key_bundle_path="/home/testuser/.conduit-cert-key-bundle.pem",
 )
 
@@ -63,7 +63,7 @@ from conduit._generated import api_pb2
 cfg = ConduitClientConfig(
     addr="conduit-server.example.com:23456",
     timeout_s=10.0,
-    ca_pem_path="/etc/conduit/keys/conduit_external_ca.pem",
+    ca_pem_path="/etc/conduit/keys/conduit-external-ca.pem",
     cert_key_bundle_path="/home/testuser/.conduit-cert-key-bundle.pem",
 )
 

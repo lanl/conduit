@@ -20,7 +20,10 @@ RUN apk add --no-cache \
         python3 \
         py3-pip
 
-RUN adduser -D -u 1433 testuser
+RUN adduser -D -u 1433 testuser \
+    && addgroup -g 1434 testgroup \
+    && addgroup testuser testgroup
+
 
 RUN sed -i --regexp-extended "s/#(\s+default_realm = )\S+/\1$DEFAULT_REALM/" /etc/krb5.conf \
     && sed -i --regexp-extended "s/(default_ccache_name = )\S+/\1$DEFAULT_CCACHE_NAME/" /etc/krb5.conf \

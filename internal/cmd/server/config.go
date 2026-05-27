@@ -24,10 +24,10 @@ const (
 	ConfigType                      = "yaml"
 	envPrefix                       = "CONDUIT"
 	DefaultKeytabName               = "conduit.keytab"
-	DefaultInternalCACertName       = "conduit_internal_ca.pem"
-	DefaultInternalCAKeyName        = "conduit_internal_key.pem"
-	DefaultExternalCACertName       = "conduit_external_ca.pem"
-	DefaultExternalCAKeyName        = "conduit_external_key.pem"
+	DefaultInternalCACertName       = "conduit-internal-ca.pem"
+	DefaultInternalCAKeyName        = "conduit-internal-key.pem"
+	DefaultExternalCACertName       = "conduit-external-ca.pem"
+	DefaultExternalCAKeyName        = "conduit-external-key.pem"
 	DefaultClientCertExpirationDays = 10
 
 	DefaultNodeAllocationsValidationNodes  = 1

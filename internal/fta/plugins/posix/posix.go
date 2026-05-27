@@ -11,6 +11,7 @@ import (
 
 const (
 	CustomPluginConfigTrashKey = "posix-src-trash"
+	PosixPluginKey             = "posix"
 )
 
 var _ plugin.ConduitFTAPlugin = (*PosixPlugin)(nil)
@@ -34,4 +35,9 @@ func (p *PosixPlugin) Initialize(transferID uuid.UUID, log *logger.ConduitLogger
 // no op
 func (p *PosixPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action proto.Action, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
 	return plugin.PluginErrors{}
+}
+
+// no config
+func (p *PosixPlugin) GetDefaultConfig() any {
+	return nil
 }

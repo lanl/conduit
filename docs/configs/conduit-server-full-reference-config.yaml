@@ -7,13 +7,13 @@ auth:
     postal-code: "87545"
     province: NM
   # location of CA Cert used for external connections to the conduit server API (ex: conduit-cli uses this cert)
-  external-ca-cert: /etc/conduit/conduit_external_ca.pem
+  external-ca-cert: /etc/conduit/conduit-external-ca.pem
   # location of the paired key for the external CA cert. Keep this safe
-  external-ca-key: /etc/conduit/conduit_external_key.pem
+  external-ca-key: /etc/conduit/conduit-external-key.pem
   # location of CA Cert used for internal connections to the conduit server API (ex: conduit-runner, conduit-fta, etcd, rqlite use this cert)
-  internal-ca-cert: /etc/conduit/conduit_internal_ca.pem
+  internal-ca-cert: /etc/conduit/conduit-internal-ca.pem
   # location of the paired key for the internal CA cert. Keep this safe
-  internal-ca-key: /etc/conduit/conduit_internal_key.pem
+  internal-ca-key: /etc/conduit/conduit-internal-key.pem
   # location of the kerberos keytab used for kerberos authentication with conduit-cli
   keytab: /etc/conduit/conduit.keytab
   # duration that a requested cert will stay valid for. These certs are generated with the conduit-cli `cert` command. Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"

@@ -93,7 +93,7 @@ func getTransferPlugin(transferID uuid.UUID, log *logger.ConduitLogger, pluginDa
 	var transferPlugin plugin.ConduitFTAPlugin
 
 	for _, fps := range finalPluginStrings {
-		pathPlugin, ok := pluginMap[fps]
+		pathPlugin, ok := PluginMap[fps]
 		if !ok {
 			continue
 		}

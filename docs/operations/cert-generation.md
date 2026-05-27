@@ -24,16 +24,16 @@ Conduit uses two separate Certificate Authorities (CAs) to secure different part
 
 ```sh
 ./conduit-server internal-ca -d \
-    --internal-ca-cert ./conduit_internal_ca.pem \
-    --internal-ca-key ./conduit_internal_key.pem \
+    --internal-ca-cert ./conduit-internal-ca.pem \
+    --internal-ca-key ./conduit-internal-key.pem \
 ```
 
 ### Conduit External CA
 
 ```sh
 ./conduit-server external-ca -d \
-    --external-ca-cert ./conduit_external_ca.pem \
-    --external-ca-key ./conduit_external_key.pem \
+    --external-ca-cert ./conduit-external-ca.pem \
+    --external-ca-key ./conduit-external-key.pem \
 ```
 
 ### ETCD & Rqlite Server Cert & Key
@@ -42,21 +42,21 @@ Admins need to provide these generated cert & keys to etcd and rqlite when setti
 
 ```sh
 ./conduit-server internal-server-cert -d \
-    --internal-ca-cert ./conduit_internal_ca.pem \
-    --internal-ca-key ./conduit_internal_key.pem \
+    --internal-ca-cert ./conduit-internal-ca.pem \
+    --internal-ca-key ./conduit-internal-key.pem \
     --separate-cert-key \
-    --cert-name etcd_server_cert.pem \
-    --key-name etcd_server_key.pem \
+    --cert-name etcd-server-cert.pem \
+    --key-name etcd-server-key.pem \
     --output ./ \
     --server-ip 192.168.20.21,192.168.20.22,192.168.20.23 \
     --server-hostname etcd-1.example.com,etcd-2.example.com,etcd-3.example.com
 
 ./conduit-server internal-server-cert -d \
-    --internal-ca-cert ./conduit_internal_ca.pem \
-    --internal-ca-key ./conduit_internal_key.pem \
+    --internal-ca-cert ./conduit-internal-ca.pem \
+    --internal-ca-key ./conduit-internal-key.pem \
     --separate-cert-key \
-    --cert-name rqlite_server_cert.pem \
-    --key-name rqlite_server_key.pem \
+    --cert-name rqlite-server-cert.pem \
+    --key-name rqlite-server-key.pem \
     --output ./ \
     --server-ip 192.168.20.31,192.168.20.32,192.168.20.33 \
     --server-hostname rqlite-1.example.com,rqlite-2.example.com,rqlite-3.example.com
@@ -70,21 +70,21 @@ The slurm cert and key need to be provided to the slurm lua plugin so it can aut
 
 ```sh
 ./conduit-server external-client-cert -d \
-    --external-ca-cert ./conduit_external_ca.pem \
-    --external-ca-key ./conduit_external_key.pem \
+    --external-ca-cert ./conduit-external-ca.pem \
+    --external-ca-key ./conduit-external-key.pem \
     --separate-cert-key \
-    --cert-name conduit_admin_cert.pem \
-    --key-name conduit_admin_key.pem \
+    --cert-name conduit-admin-cert.pem \
+    --key-name conduit-admin-key.pem \
     --output ./ \
     --client-commonname conduit-admin \
     --expiration 365
 
 ./conduit-server external-client-cert -d \
-    --external-ca-cert ./conduit_external_ca.pem \
-    --external-ca-key ./conduit_external_key.pem \
+    --external-ca-cert ./conduit-external-ca.pem \
+    --external-ca-key ./conduit-external-key.pem \
     --separate-cert-key \
-    --cert-name conduit_slurm_cert.pem \
-    --key-name conduit_slurm_key.pem \
+    --cert-name conduit-slurm-cert.pem \
+    --key-name conduit-slurm-key.pem \
     --output ./ \
     --client-commonname conduit-service \
     --expiration 365
@@ -96,21 +96,21 @@ These are optional certs that can be used to talk directly to etcd or rqlite usi
 
 ```sh
 ./conduit-server internal-client-cert -d \
-    --internal-ca-cert ./conduit_internal_ca.pem \
-    --internal-ca-key ./conduit_internal_key.pem \
+    --internal-ca-cert ./conduit-internal-ca.pem \
+    --internal-ca-key ./conduit-internal-key.pem \
     --separate-cert-key \
-    --cert-name etcd_client_cert.pem \
-    --key-name etcd_client_key.pem \
+    --cert-name etcd-client-cert.pem \
+    --key-name etcd-client-key.pem \
     --output ./ \
     --client-commonname root \
     --expiration 365
 
 ./conduit-server internal-client-cert -d \
-    --internal-ca-cert ./conduit_internal_ca.pem \
-    --internal-ca-key ./conduit_internal_key.pem \
+    --internal-ca-cert ./conduit-internal-ca.pem \
+    --internal-ca-key ./conduit-internal-key.pem \
     --separate-cert-key \
-    --cert-name rqlite_client_cert.pem \
-    --key-name rqlite_client_key.pem \
+    --cert-name rqlite-client-cert.pem \
+    --key-name rqlite-client-key.pem \
     --output ./ \
     --client-commonname "" \
     --expiration 365

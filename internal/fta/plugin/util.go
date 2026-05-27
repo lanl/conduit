@@ -17,20 +17,20 @@ const (
 
 // FileSystemConfig defines how the file system configuration should look in the conduit-fta config file
 type FileSystemConfig struct {
-	Name               string
-	UserPathRegex      string // the regex that will define how the substitutions work for the final paths (this is from the perspective of the frontend nodes)
-	FTAPathSub         string // the substitution that defines the location of the file on the FTAs
-	FTARootFSPathSub   string // the substitution that defines the locations of the root of the FS from the perspective of the FTA
-	PluginStages       ViperPluginStagesConfig
-	CustomPluginConfig map[string]any
+	Name                 string
+	UserPathRegex        string // the regex that will define how the substitutions work for the final paths (this is from the perspective of the frontend nodes)
+	FTAPathSub           string // the substitution that defines the location of the file on the FTAs
+	FTARootFSPathSub     string // the substitution that defines the locations of the root of the FS from the perspective of the FTA
+	PluginStages         ViperPluginStagesConfig
+	CustomPluginFSConfig map[string]any
 }
 
 type ViperFSConfig struct {
-	UserPathRegex      string                  `mapstructure:"user-path" yaml:"user-path"`               // the regex that will define how the substitutions work for the final paths (this is from the perspective of the frontend nodes)
-	FTAPathSub         string                  `mapstructure:"fta-path" yaml:"fta-path"`                 // the substitution that defines the location of the file on the FTAs
-	FTARootFSPathSub   string                  `mapstructure:"fta-root-fs-path" yaml:"fta-root-fs-path"` // the substitution that defines the location of the root of the FS from the perspective of the FTA
-	PluginStages       ViperPluginStagesConfig `mapstructure:"plugin-stages" yaml:"plugin-stages"`
-	CustomPluginConfig map[string]any          `mapstructure:"custom-plugin-config" yaml:"custom-plugin-config"`
+	UserPathRegex        string                  `mapstructure:"user-path" yaml:"user-path"`               // the regex that will define how the substitutions work for the final paths (this is from the perspective of the frontend nodes)
+	FTAPathSub           string                  `mapstructure:"fta-path" yaml:"fta-path"`                 // the substitution that defines the location of the file on the FTAs
+	FTARootFSPathSub     string                  `mapstructure:"fta-root-fs-path" yaml:"fta-root-fs-path"` // the substitution that defines the location of the root of the FS from the perspective of the FTA
+	PluginStages         ViperPluginStagesConfig `mapstructure:"plugin-stages" yaml:"plugin-stages"`
+	CustomPluginFSConfig map[string]any          `mapstructure:"custom-plugin-config" yaml:"custom-plugin-config"`
 }
 
 type ViperPluginStagesConfig struct {
@@ -61,12 +61,12 @@ func GetFSCsFromViper() (map[string]*FileSystemConfig, error) {
 	fscs := make(map[string]*FileSystemConfig)
 	for fsn, vfsc := range vfs {
 		fscs[fsn] = &FileSystemConfig{
-			Name:               fsn,
-			UserPathRegex:      vfsc.UserPathRegex,
-			FTAPathSub:         vfsc.FTAPathSub,
-			FTARootFSPathSub:   vfsc.FTARootFSPathSub,
-			PluginStages:       vfsc.PluginStages,
-			CustomPluginConfig: vfsc.CustomPluginConfig,
+			Name:                 fsn,
+			UserPathRegex:        vfsc.UserPathRegex,
+			FTAPathSub:           vfsc.FTAPathSub,
+			FTARootFSPathSub:     vfsc.FTARootFSPathSub,
+			PluginStages:         vfsc.PluginStages,
+			CustomPluginFSConfig: vfsc.CustomPluginFSConfig,
 		}
 	}
 
@@ -107,4 +107,21 @@ func GetFSCFromPath(p string, allFileSystems map[string]*FileSystemConfig) (file
 	}
 
 	return "", nil, proto.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("could not find a matching filesystem for path[%v]", p)
+}
+
+// GetPluginConfigsFromViper will get the plugin configuration from viper for a specified plugin
+func GetPluginConfigsFromViper(pluginKey string, config any) error {
+	pluginsKey := "plugins"
+	vpc := make(map[string]any)
+	err := viper.UnmarshalKey(pluginsKey, &vpc)
+	if err != nil {
+		return fmt.Errorf("viper failed unmarshal plugin config to struct: %v", err)
+	}
+
+	if _, ok := vpc[pluginKey]; ok {
+		viper.UnmarshalKey(fmt.Sprintf("%s.%s", pluginsKey, pluginKey), config)
+		return nil
+	}
+
+	return fmt.Errorf("failed to find config for plugin in fta config file: %v", pluginKey)
 }
