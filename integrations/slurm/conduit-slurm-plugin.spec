@@ -37,7 +37,7 @@ install -Dpm 0644 burst_buffer.lua %{buildroot}%{_sysconfdir}/conduit/burst_buff
 install -Dpm 0644 burst_buffer.conf %{buildroot}%{_sysconfdir}/conduit/burst_buffer.conf
 
 %files
-%doc README* 
+%doc slurm-plugin.md
 # %license LICENSE
 %{_sbindir}/conduit
 %config %{_sysconfdir}/conduit/burst_buffer.lua
