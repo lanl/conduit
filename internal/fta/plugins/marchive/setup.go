@@ -17,7 +17,8 @@ import (
 // waits/hangs until this script completes, which occurs after the Tape Manager has completed all
 // READ jobs.
 func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
-	pc, err := plugin.GetPluginConfigsFromViper(MarchivePluginKey)
+	marchiveConfig := &ViperMarchivePluginConfig{}
+	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, marchiveConfig)
 	if err != nil {
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
@@ -29,8 +30,8 @@ func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPath
 			},
 		}, nil
 	}
-	scriptRelPath := pc.(ViperMarchivePluginConfig).TmrequestPath // Ensure this script exists and is executable
-	genRelPath := pc.(ViperMarchivePluginConfig).ObjlistPath      // The MarFS object list generation command
+	scriptRelPath := marchiveConfig.TmrequestPath // Ensure this script exists and is executable
+	genRelPath := marchiveConfig.ObjlistPath      // The MarFS object list generation command
 
 	// pathInfo.TransferPath tells the transfer plugin what final path to use for its transfer
 	pathInfo.TransferPath = pathInfo.ResolvedFTAPath

@@ -69,7 +69,8 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 	realSize := len(argTest) + int(unsafe.Sizeof(argTest))
 	p.log.Debugf("real size of args: %d", realSize)
 
-	pc, err := plugin.GetPluginConfigsFromViper(RsyncPluginKey)
+	rsyncConfig := &ViperRsyncPluginConfig{}
+	err := plugin.GetPluginConfigsFromViper(RsyncPluginKey, rsyncConfig)
 	if err != nil {
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
@@ -80,7 +81,7 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 			},
 		}
 	}
-	rsyncLocation := pc.(ViperRsyncPluginConfig).RsyncPath
+	rsyncLocation := rsyncConfig.RsyncPath
 
 	cmd := exec.Command(rsyncLocation, args...)
 

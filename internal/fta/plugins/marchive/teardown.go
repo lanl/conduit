@@ -13,7 +13,8 @@ import (
 )
 
 func (p *MarchivePlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) plugin.PluginErrors {
-	pc, err := plugin.GetPluginConfigsFromViper(MarchivePluginKey)
+	marchiveConfig := &ViperMarchivePluginConfig{}
+	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, marchiveConfig)
 	if err != nil {
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
@@ -25,7 +26,7 @@ func (p *MarchivePlugin) Teardown(transferID uuid.UUID, transferDetails *proto.T
 			},
 		}
 	}
-	scriptRelPath := pc.(ViperMarchivePluginConfig).TmrequestPath // Ensure this script exists and is executable
+	scriptRelPath := marchiveConfig.TmrequestPath // Ensure this script exists and is executable
 
 	// If the file path is not a SOURCE for the transfer -> no need to
 	// clean up the Tape Manager tree

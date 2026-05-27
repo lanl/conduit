@@ -110,16 +110,18 @@ func GetFSCFromPath(p string, allFileSystems map[string]*FileSystemConfig) (file
 }
 
 // GetPluginConfigsFromViper will get the plugin configuration from viper for a specified plugin
-func GetPluginConfigsFromViper(pluginKey string) (any, error) {
+func GetPluginConfigsFromViper(pluginKey string, config any) error {
+	pluginsKey := "plugins"
 	vpc := make(map[string]any)
-	err := viper.UnmarshalKey("plugins", &vpc)
+	err := viper.UnmarshalKey(pluginsKey, &vpc)
 	if err != nil {
-		return nil, fmt.Errorf("viper failed unmarshal plugin config to struct: %v", err)
+		return fmt.Errorf("viper failed unmarshal plugin config to struct: %v", err)
 	}
 
-	if pc, ok := vpc[pluginKey]; ok {
-		return pc, nil
+	if _, ok := vpc[pluginKey]; ok {
+		viper.UnmarshalKey(fmt.Sprintf("%s.%s", pluginsKey, pluginKey), config)
+		return nil
 	}
 
-	return nil, fmt.Errorf("failed to find config for plugin in fta config file: %v", pluginKey)
+	return fmt.Errorf("failed to find config for plugin in fta config file: %v", pluginKey)
 }

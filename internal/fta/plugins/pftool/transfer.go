@@ -84,7 +84,8 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 
 	cmdContext, cmdCancel := context.WithCancelCause(context.Background())
 
-	pc, err := plugin.GetPluginConfigsFromViper(PftoolPluginKey)
+	pftoolConfig := &ViperPftoolPluginConfig{}
+	err = plugin.GetPluginConfigsFromViper(PftoolPluginKey, pftoolConfig)
 	if err != nil {
 		cmdCancel(fmt.Errorf("failed to get pftool config: %v", err))
 		return plugin.PluginErrors{
@@ -96,7 +97,7 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 			},
 		}
 	}
-	pfcpLocation := pc.(ViperPftoolPluginConfig).PfcpPath
+	pfcpLocation := pftoolConfig.PfcpPath
 
 	cmd := exec.CommandContext(cmdContext, pfcpLocation, args...)
 
@@ -159,14 +160,14 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	p.log.Infof("pfcp command: %v", cmd.Args)
 
 	go func() {
-		pftoolTimeout := pc.(ViperPftoolPluginConfig).TimeoutHours
+		pftoolTimeout := pftoolConfig.TimeoutHours
 
 		if pftoolTimeout == 0 {
 			p.log.Warnf("pftool timeout was set to 0 in the config using default value: %v", DefaultPftoolTimeoutHours)
 			pftoolTimeout = DefaultPftoolTimeoutHours
 		}
 
-		timer := time.NewTimer(time.Duration(pftoolTimeout) * time.Hour)
+		timer := time.NewTimer(time.Duration(pftoolTimeout * float64(time.Hour)))
 		defer timer.Stop()
 
 		currFileChunks := uint32(0)
@@ -180,7 +181,7 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 
 				// if we get a new value for file chunks, reset the timer
 				if fc != currFileChunks {
-					timer.Reset(time.Duration(pftoolTimeout) * time.Hour)
+					timer.Reset(time.Duration(pftoolTimeout * float64(time.Hour)))
 				}
 				currFileChunks = fc
 
