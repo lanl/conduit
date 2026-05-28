@@ -8,7 +8,7 @@ local CONDUIT_CA = "/etc/conduit/conduit-external-ca.pem"
 local CONDUIT_CLI_CONFIG = "/etc/conduit/conduit-cli-config.yaml"
 
 
-local STATIC_FLAGS = { "--cert", CONDUIT_CERT, "--key", CONDUIT_KEY, "--ca", CONDUIT_CA, "--config", CONDUIT_CMD_CONFIG }
+local STATIC_FLAGS = { "--cert", CONDUIT_CERT, "--key", CONDUIT_KEY, "--ca", CONDUIT_CA, "--config", CONDUIT_CLI_CONFIG }
 
 
 DIRECTIVE           = "CONDUIT"
@@ -80,7 +80,7 @@ function CONDUIT_JOB:describeJsonPathCmd(jsonpath)
 		final_args[#final_args + 1] = STATIC_FLAGS[i]
 	end
 
-	return CONDUIT_CMD, final_args
+	return CONDUIT_CLI, final_args
 end
 
 function CONDUIT_JOB:stateCmd()
@@ -114,7 +114,7 @@ function CONDUIT_JOB:transferIDCmd()
 		final_args[#final_args + 1] = STATIC_FLAGS[i]
 	end
 
-	return CONDUIT_CMD, final_args
+	return CONDUIT_CLI, final_args
 end
 
 function CONDUIT_JOB:errorCmd()
@@ -153,7 +153,7 @@ function CONDUIT_JOB:transferCmd()
 		final_args[#final_args + 1] = STATIC_FLAGS[i]
 	end
 
-	return CONDUIT_CMD, final_args
+	return CONDUIT_CLI, final_args
 end
 
 -- requires a transferID in CONDUIT_JOB
@@ -171,7 +171,7 @@ function CONDUIT_JOB:abortCmd()
 		final_args[#final_args + 1] = STATIC_FLAGS[i]
 	end
 
-	return CONDUIT_CMD, final_args
+	return CONDUIT_CLI, final_args
 end
 
 function CONDUIT_JOB:transferAndWatchCmd()
@@ -196,7 +196,7 @@ function CONDUIT_JOB:watchCmd()
 		final_args[#final_args + 1] = STATIC_FLAGS[i]
 	end
 
-	return CONDUIT_CMD, final_args
+	return CONDUIT_CLI, final_args
 end
 
 function CONDUIT_JOB:getTransferIDFromConduit()
@@ -244,7 +244,7 @@ function SlurmIDStateCmd(slurmJobID, uid)
 		final_args[#final_args + 1] = STATIC_FLAGS[i]
 	end
 
-	return CONDUIT_CMD, final_args
+	return CONDUIT_CLI, final_args
 end
 
 function TransferExistsCmd(comment, uid)
@@ -263,7 +263,7 @@ function TransferExistsCmd(comment, uid)
 		final_args[#final_args + 1] = STATIC_FLAGS[i]
 	end
 
-	local done, output = exec_cmd(CONDUIT_CMD, final_args)
+	local done, output = exec_cmd(CONDUIT_CLI, final_args)
 	if done == false then
 		return false, "failed to get transfer from conduit with comment: " .. comment .. " :command failed: " .. output
 	end
