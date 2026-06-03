@@ -1,7 +1,7 @@
 # Copyright 2026. Triad National Security, LLC. All rights reserved.
 
 ### Build Arguments (override via "--build-arg")
-ARG GOVER="1.25"
+ARG GOVER="1.26"
 ARG ALPINE="3.22"
 
 ################################################################################

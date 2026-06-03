@@ -80,7 +80,7 @@ services:
       context: ../../
       dockerfile: docker/Dockerfile.server
       args:
-        - GOVER=1.25
+        - GOVER=1.26
         - ALPINE=3.22
     container_name: conduit-server
     hostname: conduit-server.example.com
