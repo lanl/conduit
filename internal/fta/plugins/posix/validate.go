@@ -4,6 +4,7 @@ package posix
 
 import (
 	"fmt"
+	"os"
 	"os/user"
 	"path/filepath"
 
@@ -124,7 +125,12 @@ func validateDestPermissions(log *logger.ConduitLogger, userDestination string, 
 	for _, d := range ftaDestinations {
 		// validate destination permissions
 		cleanDestParentPath := filepath.Dir(d)
-		err = unix.Access(cleanDestParentPath, unix.W_OK)
+		err := unix.Faccessat(
+			unix.AT_FDCWD,
+			cleanDestParentPath,
+			unix.W_OK|unix.X_OK,
+			unix.AT_EACCESS,
+		)
 		if err != nil {
 			// failed to get access.
 			tErr := fmt.Errorf("user[%v] does not have write permissions for dest parent path[%v]: %v", currUser, cleanDestParentPath, err)
@@ -135,7 +141,8 @@ func validateDestPermissions(log *logger.ConduitLogger, userDestination string, 
 	return pathErrors
 }
 
-// validateSourcePermissions checks that we have write permission on a source fta path
+// validateSourcePermissions performs advisory source permission checks for copy/move actions.
+// Symlink sources are validated as symlinks and are not followed.
 func validateSourcePermissions(log *logger.ConduitLogger, transferSource string, ftaSource string, action proto.Action) *plugin.FTAPathError {
 	currUser := ""
 	u, err := user.Current()
@@ -145,20 +152,69 @@ func validateSourcePermissions(log *logger.ConduitLogger, transferSource string,
 		currUser = u.Username
 	}
 
-	// validate source permissions
-	if action == proto.Action_COPY || action == proto.Action_RECURSIVE_COPY {
-		err = unix.Access(ftaSource, unix.R_OK)
+	switch action {
+	case proto.Action_COPY, proto.Action_RECURSIVE_COPY:
+		info, err := os.Lstat(ftaSource)
 		if err != nil {
-			tErr := fmt.Errorf("user[%v] does not have read permissions for source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+			tErr := fmt.Errorf("user[%v] cannot stat source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+			if os.IsNotExist(err) {
+				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}
+			} else {
+				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}
+			}
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			// can we read the link text without following it?
+			if _, err := os.Readlink(ftaSource); err != nil {
+				tErr := fmt.Errorf("user[%v] cannot read symlink source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+				if os.IsNotExist(err) {
+					return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}
+				} else {
+					return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}
+				}
+			}
+		} else {
+			mode := uint32(unix.R_OK)
+			if info.IsDir() {
+				mode |= unix.X_OK
+			}
+
+			err := unix.Faccessat(
+				unix.AT_FDCWD,
+				ftaSource,
+				mode,
+				unix.AT_EACCESS,
+			)
+			if err != nil {
+				tErr := fmt.Errorf("user[%v] does not have read permissions for source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}
+			}
+		}
+	case proto.Action_MOVE, proto.Action_RECURSIVE_MOVE:
+		if _, err := os.Lstat(ftaSource); err != nil {
+			tErr := fmt.Errorf("user[%v] cannot stat source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+			if os.IsNotExist(err) {
+				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}
+			} else {
+				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}
+			}
+		}
+
+		sourceParent := filepath.Dir(ftaSource)
+
+		err := unix.Faccessat(
+			unix.AT_FDCWD,
+			sourceParent,
+			unix.W_OK|unix.X_OK,
+			unix.AT_EACCESS,
+		)
+		if err != nil {
+			tErr := fmt.Errorf("user[%v] does not have write/search permissions for source parent path[%v] for source[%v](%v): %v",
+				currUser, sourceParent, ftaSource, transferSource, err)
 			return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}
 		}
-	} else if action == proto.Action_MOVE || action == proto.Action_RECURSIVE_MOVE {
-		err = unix.Access(ftaSource, unix.W_OK)
-		if err != nil {
-			tErr := fmt.Errorf("user[%v] does not have write permissions for source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
-			return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}
-		}
-	} else {
+	default:
 		tErr := fmt.Errorf("cannot determine permissions because action is unrecognized: %v", action)
 		return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_CONDUIT_INTERNAL, ErrMessage: tErr}
 	}
