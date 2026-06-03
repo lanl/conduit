@@ -94,6 +94,13 @@ var mvCmd = &cobra.Command{
 			}
 		}
 
+		workdir, err := cmd.Flags().GetString("work-dir")
+		if err != nil {
+			if !quiet {
+				fmt.Printf("failed to get work-dir flag: %v\n", err)
+			}
+		}
+
 		validateOnly := false
 		validateOnly, err = cmd.Flags().GetBool("validate-only")
 		if err != nil {
@@ -120,7 +127,7 @@ var mvCmd = &cobra.Command{
 			<-doneChan
 		}
 
-		td, err := client.StartTransfer(action, src, dst, skipValidation, skipStat, ps, validateOnly, providedUser, comment)
+		td, err := client.StartTransfer(action, src, dst, skipValidation, skipStat, ps, validateOnly, providedUser, comment, workdir)
 		if err != nil {
 			fmt.Printf("request failed: %v\n", err)
 			os.Exit(1)
@@ -153,6 +160,7 @@ func init() {
 	mvCmd.Flags().StringVar(&providedUser, "user", "", "The user to start the transfer as. Requires an admin cert & key to be provided")
 	mvCmd.Flags().String("comment", "", "A comment for the transfer. Used by conduit services. Requires an admin or service cert & key to be provided")
 	mvCmd.Flags().Bool("validate-only", false, "Do not transfer any data, just run validation")
+	mvCmd.Flags().String("work-dir", "", "Override the working directory. Used for path auto-completion")
 
 	// test mode flags. Should not be used in production
 	mvCmd.Flags().String("pause", proto.TransferState_TRANSFER_NONE.String(), "specify a lease state to pause at for test mode")
@@ -160,6 +168,7 @@ func init() {
 	mvCmd.Flags().MarkHidden("skip-stat")
 	mvCmd.Flags().MarkHidden("comment")
 	mvCmd.Flags().MarkHidden("pause")
+	mvCmd.Flags().MarkHidden("work-dir")
 
 	RootCmd.AddCommand(mvCmd)
 }

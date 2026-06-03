@@ -33,10 +33,11 @@ CONDUIT_JOB         = {
 	transferID = "", -- the conduit transfer ID
 	userArgs = {},
 	uid = 0,
+	workDir = "",
 }
 CONDUIT_JOB.__index = CONDUIT_JOB
 
-function CONDUIT_JOB:new(jobID, jobType, jobIndex, userArgs, uid)
+function CONDUIT_JOB:new(jobID, jobType, jobIndex, userArgs, uid, workDir)
 	local job = {}
 	setmetatable(job, self)
 	self.__index = self
@@ -46,6 +47,7 @@ function CONDUIT_JOB:new(jobID, jobType, jobIndex, userArgs, uid)
 	job.uid = uid        -- user id
 	job.userArgs = userArgs -- provided transfer command
 	job.transferID = ""
+	job.workDir = workDir
 	return job
 end
 
@@ -73,7 +75,7 @@ function CONDUIT_JOB:describeJsonPathCmd(jsonpath)
 	table.insert(final_args, jsonpath)
 
 	table.insert(final_args, "--user")
-	table.insert(final_args, self.uid)
+	table.insert(final_args, tostring(self.uid))
 
 	-- add static flags to the end of final_args
 	for i = 1, #STATIC_FLAGS do
@@ -107,7 +109,7 @@ function CONDUIT_JOB:transferIDCmd()
 	table.insert(final_args, jsonpath)
 
 	table.insert(final_args, "--user")
-	table.insert(final_args, self.uid)
+	table.insert(final_args, tostring(self.uid))
 
 	-- add static flags to the end of final_args
 	for i = 1, #STATIC_FLAGS do
@@ -143,10 +145,15 @@ function CONDUIT_JOB:transferCmd()
 	table.insert(final_args, "--skip-stat")
 
 	table.insert(final_args, "--user")
-	table.insert(final_args, self.uid)
+	table.insert(final_args, tostring(self.uid))
 
 	table.insert(final_args, "--comment")
 	table.insert(final_args, self:comment())
+
+	if type(self.workDir) == "string" and self.workDir ~= "" then
+		table.insert(final_args, "--work-dir")
+		table.insert(final_args, self.workDir)
+	end
 
 	-- add static flags to the end of final_args
 	for i = 1, #STATIC_FLAGS do
@@ -164,7 +171,7 @@ function CONDUIT_JOB:abortCmd()
 	table.insert(final_args, self.transferID)
 
 	table.insert(final_args, "--user")
-	table.insert(final_args, self.uid)
+	table.insert(final_args, tostring(self.uid))
 
 	-- add static flags to the end of final_args
 	for i = 1, #STATIC_FLAGS do
@@ -189,7 +196,7 @@ function CONDUIT_JOB:watchCmd()
 	table.insert(final_args, self.transferID)
 
 	table.insert(final_args, "--user")
-	table.insert(final_args, self.uid)
+	table.insert(final_args, tostring(self.uid))
 
 	-- add static flags to the end of final_args
 	for i = 1, #STATIC_FLAGS do
@@ -198,6 +205,20 @@ function CONDUIT_JOB:watchCmd()
 
 	return CONDUIT_CLI, final_args
 end
+
+local function Is_uuid(str)
+	-- optional single or double quote at start and end
+	return str:match([[^["']?%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x["']?$]]) ~= nil
+end
+
+local function Extract_uuid(str)
+	if type(str) ~= "string" then
+		return ""
+	end
+
+	return str:match([[%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x]]) or ""
+end
+
 
 function CONDUIT_JOB:getTransferIDFromConduit()
 	local cmd, args = self.transferIDCmd(self)
@@ -208,16 +229,16 @@ function CONDUIT_JOB:getTransferIDFromConduit()
 	end
 	-- make sure we get back a transferID that's a string
 	if type(output) ~= type("") then
-		slurm.log_error(string.format("%s: getTransferIDFromConduit(), jobIndex=%s, transferID=%s : failed to get transfer ID from conduit", lua_script_name, self.jobIndex, output))
-		return "", "failed to get transferID from conduit with comment: " .. self:comment() .. " received invalid transferID: " .. output
+		slurm.log_error(string.format("%s: getTransferIDFromConduit(), jobIndex=%s, transferID=%s : failed to get transfer ID from conduit", lua_script_name, self.jobIndex, tostring(output)))
+		return "", "failed to get transferID from conduit with comment: " .. self:comment() .. " received invalid transferID: " .. tostring(output)
 	end
 
 	local transferID = string.gsub(output, "%s", "")
 	transferID = string.gsub(transferID, "\"", "")
 
 	if not Is_uuid(transferID) then
-		slurm.log_error(string.format("%s: getTransferIDFromConduit(), jobIndex=%s, transferID=%s : failed to get transfer ID from conduit", lua_script_name, self.jobIndex, output))
-		return "", "failed to get transferID from conduit with comment: " .. self:comment() .. " received invalid transferID: " .. output
+		slurm.log_error(string.format("%s: getTransferIDFromConduit(), jobIndex=%s, transferID=%s : failed to get transfer ID from conduit", lua_script_name, self.jobIndex, tostring(output)))
+		return "", "failed to get transferID from conduit with comment: " .. self:comment() .. " received invalid transferID: " .. tostring(output)
 	end
 
 	return transferID, ""
@@ -231,13 +252,13 @@ function SlurmIDStateCmd(slurmJobID, uid)
 	table.insert(final_args, "describe")
 	table.insert(final_args, "--quiet")
 
-	table.insert(final_args, slurmJobID)
+	table.insert(final_args, tostring(slurmJobID))
 
 	table.insert(final_args, "--jsonpath")
 	table.insert(final_args, jsonpath)
 
 	table.insert(final_args, "--user")
-	table.insert(final_args, uid)
+	table.insert(final_args, tostring(uid))
 
 	-- add static flags to the end of final_args
 	for i = 1, #STATIC_FLAGS do
@@ -256,7 +277,7 @@ function TransferExistsCmd(comment, uid)
 	table.insert(final_args, comment)
 
 	table.insert(final_args, "--user")
-	table.insert(final_args, uid)
+	table.insert(final_args, tostring(uid))
 
 	-- add static flags to the end of final_args
 	for i = 1, #STATIC_FLAGS do
@@ -265,11 +286,11 @@ function TransferExistsCmd(comment, uid)
 
 	local done, output = exec_cmd(CONDUIT_CLI, final_args)
 	if done == false then
-		return false, "failed to get transfer from conduit with comment: " .. comment .. " :command failed: " .. output
+		return false, "failed to get transfer from conduit with comment: " .. comment .. " :command failed: " .. tostring(output)
 	end
 	-- make sure we get back an output that's a string
 	if type(output) ~= type("") then
-		return false, "failed to get transferID from conduit with comment: " .. comment .. " received invalid output: " .. output
+		return false, "failed to get transferID from conduit with comment: " .. comment .. " received invalid output: " .. tostring(output)
 	end
 	output = string.gsub(output, "%s", "")
 	output = string.gsub(output, "\"", "")
@@ -279,24 +300,6 @@ function TransferExistsCmd(comment, uid)
 	end
 
 	return true, ""
-end
-
--- io_popen will run the given command and collect its output.
--- On success this returns true and the output of the command.
--- On failure this returns false and the output of the command.
-function io_popen(cmd)
-	local handle = io.popen(cmd)
-	if handle == nil then
-		slurm.log_debug("nil handle")
-		return false, nil
-	end
-	local result = handle:read("*a")
-	-- The exit status is an integer in rc[3].
-	local rc = { handle:close() }
-	if rc[3] ~= 0 then
-		return false, result
-	end
-	return true, result
 end
 
 -- exec_cmd: run a command (no shell) and collect its stdout+stderr.
@@ -316,7 +319,13 @@ function exec_cmd(cmd, args)
 		return false, "failed to create pipe"
 	end
 
-	local pid = posix.fork()
+	local pid, fork_err, fork_errno = posix.fork()
+	if pid == nil then
+		posix.close(r_fd)
+		posix.close(w_fd)
+		return false, "failed to fork: " .. tostring(fork_err or fork_errno)
+	end
+
 	if pid == 0 then
 		-- child
 		-- dup pipe write end onto STDOUT/STDERR
@@ -362,648 +371,41 @@ function exec_cmd(cmd, args)
 	return true, out
 end
 
---[[
---slurm_bb_job_process
---
---WARNING: This function is called synchronously from slurmctld and must
---return quickly.
---
---This function is called on job submission.
---
---Send our job to conduit as a "validation" job. This will only run validation so we can verify permissions will work out
---]]
-function slurm_bb_job_process(job_script, uid, gid, job_info)
-	slurm.log_debug("conduit bb process")
-	local results = {}
-	local contents
-	job_id = job_info["job_id"]
-	slurm.log_info("%s: slurm_bb_job_process(). job_script=%s, uid=%s, gid=%s, job_id=%s", lua_script_name, job_script, uid, gid, job_id)
-	io.input(job_script)
-	contents = io.read("*all")
+local RESERVED_USER_FLAGS = {
+	["--cert"] = true,
+	["--key"] = true,
+	["--ca"] = true,
+	["-c"] = true,
+	["--config"] = true,
+	["--user"] = true,
+	["--comment"] = true,
+	["--work-dir"] = true,
+	["--quiet"] = true,
+	["-q"] = true,
+	["--skip-stat"] = true,
+	["--validate-only"] = true,
+	["--watch"] = true,
+}
 
-	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid)
-	if err ~= nil or conduit_jobs == nil then
-		slurm.log_error("failed to parse directives: " .. err)
-		return slurm.ERROR, "failed to parse directives: " .. err
-	end
+local function option_name(tok)
+	return tok:match("^(%-%-[^=]+)=") or tok
+end
 
-	for i, j in pairs(conduit_jobs) do
-		if j.jobType == CONDUIT_PRE then
-			local cmd, args = j:validationCmd()
-			slurm.log_debug(table.concat(args, " "))
-			local done, output = exec_cmd(cmd, args)
-			slurm.log_debug("validation command complete")
-			-- remove newlines
-			output = output:gsub("[\r\n]+", "")
-			-- make sure we get back a transferID that's a string
-			if type(output) ~= type("") then
-				slurm.log_debug(string.format("%s: slurm_bb_process(), jobIndex=%s, transferID=%s : failed to run validation command", lua_script_name, j.jobIndex, output))
-				return slurm.ERROR, "failed to run validation command for directive " .. j.jobIndex .. " received invalid transferID: " .. output
-			end
-			j.transferID = string.gsub(output, "%s", "")
-			j.transferID = string.gsub(j.transferID, "\"", "")
+local function validate_user_args(toks)
+	for i = 1, #toks do
+		local tok = toks[i]
 
-			if not Is_uuid(j.transferID) then
-				slurm.log_debug(string.format("%s: slurm_bb_process(), jobIndex=%s, transferID=%s : failed to run validation command", lua_script_name, j.jobIndex, output))
-				return slurm.ERROR, "failed to run validation command for directive " .. j.jobIndex .. " received invalid transferID: " .. output
-			end
+		if tok == "--" then
+			return false, "reserved option terminator '--' is not allowed in CONDUIT directives"
+		end
 
-			slurm.log_debug("successfully sent validation to conduit: " .. output)
-
-			-- done == false means the command failed
-			if done == false then
-				slurm.log_debug(string.format("%s: slurm_bb_process(), jobIndex=%s: %s", lua_script_name, j.jobIndex, output))
-
-				local response = "validation failed for directive " .. j.jobIndex .. ": " .. output
-
-				local eCmd, eArgs = j:errorCmd()
-				local emCmd, emArgs = j:errorMessageCmd()
-				slurm.log_debug(table.concat(eArgs, " "))
-				slurm.log_debug(table.concat(emArgs, " "))
-
-				local errDone, err = exec_cmd(eCmd, eArgs)
-				local errMessageDone, errMessage = exec_cmd(emCmd, emArgs)
-
-				slurm.log_debug(err)
-				slurm.log_debug(errMessage)
-
-
-				if errDone == true and errMessageDone == true then
-					response = response .. ": " .. err .. " " .. errMessage
-				end
-				return slurm.ERROR, response
-			end
+		local name = option_name(tok)
+		if RESERVED_USER_FLAGS[name] then
+			return false, "reserved option " .. name .. " is not allowed in CONDUIT directives"
 		end
 	end
 
-
-
-	return slurm.SUCCESS, contents
-end
-
---[[
---slurm_bb_pools
---
---WARNING: This function is called from slurmctld and must return quickly.
---
---This function is called on slurmctld startup, and then periodically while
---slurmctld is running.
---
---You may specify "pools" of resources here. If you specify pools, a job may
---request a specific pool and the amount it wants from the pool. Slurm will
---subtract the job's usage from the pool at slurm_bb_data_in and Slurm will
---add the job's usage of those resources back to the pool after
---slurm_bb_teardown.
---A job may choose not to specify a pool even you pools are provided.
---If pools are not returned here, Slurm does not track burst buffer resources
---used by jobs.
---
---If pools are desired, they must be returned as the second return value
---of this function. It must be a single JSON string representing the pools.
---]]
-function slurm_bb_pools()
-	-- conduit does not use slurm_bb_pools
-	return slurm.SUCCESS
-end
-
---[[
---slurm_bb_job_teardown
---
---This function is called asynchronously and is not required to return quickly.
---This function is normally called after the job completes (or is cancelled).
---
--- Conduit aborts any running jobs during
---]]
-function slurm_bb_job_teardown(job_id, job_script, hurry, uid, gid)
-	slurm.log_info("slurm_bb_job_teardown(). job id:%s, job script:%s, hurry:%s, uid:%s, gid:%s", job_id, job_script, hurry, uid, gid)
-
-	local hurry_flag = false
-	if hurry == "true" then
-		hurry_flag = true
-	end
-
-	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid)
-	if err ~= nil or conduit_jobs == nil then
-		return slurm.ERROR, "failed to parse directives: " .. err
-	end
-
-
-	-- local jobs_actives = {}
-
-	-- get transferIDs from conduit and attach them to their respective job
-	for i, j in pairs(conduit_jobs) do
-		local exists = false
-		exists, err = TransferExistsCmd(j:comment(), uid)
-		if err ~= "" then
-			return slurm.ERROR, "failed to check if directive exists in conduit " .. j.jobIndex .. " " .. err
-		end
-
-		if exists then
-			slurm.log_debug(string.format("transfer for directive %s exists", j.jobIndex))
-			transferID, err = j:getTransferIDFromConduit()
-			if err ~= "" then
-				return slurm.ERROR, "failed to get transfer ID for directive " .. j.jobIndex .. " " .. err
-			end
-			conduit_jobs[i].transferID = transferID
-		else
-			slurm.log_debug(string.format("transfer for directive %s does not exist", j.jobIndex))
-		end
-	end
-
-	-- if we got a trasnfer id for any jobs, abort them
-	for i, j in pairs(conduit_jobs) do
-		if j.transferID ~= "" then
-			local cmd, args = j:activeCmd()
-			local done, active = exec_cmd(cmd, args)
-			slurm.log_debug(table.concat(args, " "))
-
-			-- check if our describe command failed (this should really never happen unless there is a network issue)
-			if done == false then
-				slurm.log_error(string.format("%s: slurm_bb_job_teardown(), jobIndex=%s, transferID=%s : failed to get transfer active state", lua_script_name, j.jobIndex, j.transferID))
-
-				local response = "failed to get active state for directive " .. j.jobIndex
-				return slurm.ERROR, response
-			end
-
-
-			-- make sure we get back a state that's a string
-			if type(active) ~= type("") then
-				slurm.log_error(string.format("%s: slurm_bb_job_teardown(), jobIndex=%s, transferID=%s : failed to get transfer active state", lua_script_name, j.jobIndex, transferID))
-				return slurm.ERROR, "failed to run transfer active status command for directive " .. j.jobIndex .. " received invalid active state: " .. transferID
-			end
-			active = string.gsub(active, "%s", "")
-			active = string.gsub(active, "\"", "")
-
-			if active == "true" then
-				-- the job is still active
-				if hurry_flag == true then
-					-- we're in a hurry, attempt to abort the job
-					local cmd, args = j:abortCmd()
-					slurm.log_debug(table.concat(args, " "))
-					local done, transferID = exec_cmd(cmd, args)
-					-- local done, transferID = io_popen("echo 3cb72039-e271-4ba4-bb03-74b28d7ad80" .. i)
-					if done == false then
-						slurm.log_error(string.format("%s: slurm_bb_job_teardown(), jobIndex=%s, transferID=%s : failed to get transfer active state", lua_script_name, j.jobIndex, transferID))
-
-						local response = "failed to abort transfer for directive " .. j.jobIndex .. " transferid: " .. j.transferID
-						return slurm.ERROR, response
-					end
-				else
-					-- we're not in a hurry, wait for the transfer to complete
-					local cmd, args = j:watchCmd()
-					slurm.log_debug(table.concat(args, " "))
-					local done, transferID = exec_cmd(cmd, args)
-					-- local done, transferID = io_popen("echo 3cb72039-e271-4ba4-bb03-74b28d7ad80" .. i)
-					if done == false then
-						slurm.log_error(string.format("%s: slurm_bb_job_teardown(), jobIndex=%s, transferID=%s : failed to get transfer active state", lua_script_name, j.jobIndex, transferID))
-
-						local response = "failed to watch state for directive " .. j.jobIndex .. " transferid: " .. j.transferID
-						return slurm.ERROR, response
-					end
-				end
-			end
-		end
-	end
-
-	slurm.log_info("all transfers teardown successful, sending scancel")
-	local done, output = Scancel(job_id, hurry)
-	if done then
-		slurm.log_debug(string.format("successfully sent scancel command for job %s %s", job_id, transferID))
-	else
-		local response = string.format("failed to send scancel command for job %s %s: %s", job_id, transferID, output)
-		slurm.log_error(response)
-		return slurm.ERROR, response
-	end
-
-	return slurm.SUCCESS, ""
-end
-
---[[
---slurm_bb_setup
---
---This function is called asynchronously and is not required to return quickly.
---This function is called while the job is pending.
---]]
-function slurm_bb_setup(job_id, uid, gid, pool, bb_size, job_script, job_info)
-	slurm.log_info("slurm_bb_setup(). job id:%s, uid: %s, gid:%s, pool:%s, size:%s, job script:%s", job_id, uid, gid, pool, bb_size, job_script)
-
-	return slurm.SUCCESS
-end
-
---[[
---slurm_bb_data_in
---
---This function is called asynchronously and is not required to return quickly.
---This function is called immediately after slurm_bb_setup while the job is
---pending.
---]]
-function slurm_bb_data_in(job_id, job_script, uid, gid, job_info)
-	slurm.log_info("slurm_bb_data_in(). job id:%s, job script:%s, uid:%s, gid:%s", job_id, job_script, uid, gid)
-
-
-	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid)
-	if err ~= nil or conduit_jobs == nil then
-		return slurm.ERROR, "failed to parse directives: " .. err
-	end
-
-	slurm.log_debug("parsed conduit directives successfully")
-
-	for i, j in pairs(conduit_jobs) do
-		if j.jobType == CONDUIT_PRE then
-			local cmd, args = j:transferCmd()
-			slurm.log_debug(table.concat(args, " "))
-			local done, transferID = exec_cmd(cmd, args)
-			-- local done, transferID = io_popen("echo 3cb72039-e271-4ba4-bb03-74b28d7ad80" .. i)
-			-- make sure we get back a transferID that's a string
-			if type(transferID) ~= type("") then
-				slurm.log_debug(string.format("%s: slurm_bb_data_in(), jobIndex=%s, transferID=%s : failed to run transfer command", lua_script_name, j.jobIndex, transferID))
-				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid transferID: " .. transferID
-			end
-			j.transferID = string.gsub(transferID, "%s", "")
-			j.transferID = string.gsub(j.transferID, "\"", "")
-
-			if not Is_uuid(j.transferID) then
-				slurm.log_debug(string.format("%s: slurm_bb_data_in(), jobIndex=%s, transferID=%s : failed to run transfer command", lua_script_name, j.jobIndex, transferID))
-				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid transferID: " .. transferID
-			end
-
-			-- done = false
-			if done == false then
-				slurm.log_debug(string.format("%s: slurm_bb_data_in(), jobIndex=%s, transferID=%s : failed to run transfer command", lua_script_name, j.jobIndex, transferID))
-
-				local response = "transfer failed for directive " .. j.jobIndex
-
-				local eCmd, eArgs = j:errorCmd()
-				local emCmd, emArgs = j:errorMessageCmd()
-				slurm.log_debug(table.concat(eArgs, " "))
-				slurm.log_debug(table.concat(emArgs, " "))
-				local errDone, err = exec_cmd(eCmd, eArgs)
-				local errMessageDone, errMessage = exec_cmd(emCmd, emArgs)
-
-				slurm.log_debug(string.format("%s: slurm_bb_data_in(), errDone=[%s], err=[%s]", lua_script_name, errDone, err))
-				slurm.log_debug(string.format("%s: slurm_bb_data_in(), errMessageDone=[%s], errMessage=[%s]", lua_script_name, errMessageDone, errMessage))
-
-				-- errDone = true
-				-- errMessageDone = true
-				-- err = "CONDUIT_ERROR"
-				-- errMessage = "this is a conduit error message"
-
-				if errDone == true and errMessageDone == true then
-					response = response .. ": " .. err .. " " .. errMessage
-				end
-				response = response .. ": " .. table.concat(j.userArgs, " ")
-				return slurm.ERROR, response
-			end
-		end
-	end
-
-	return slurm.SUCCESS, ""
-end
-
---[[
---slurm_bb_test_data_in
---
---This function is called asynchronously and is not required to return quickly.
---This function is called immediately after slurm_bb_data_in while the job is
---pending.
---
---This function is meant to be used to poll if data_in has completed.
---If the first return value is slurm.SUCCESS and the second return value is
---"BUSY" (or slurm.SLURM_BB_BUSY), then the job will continue to pend and
---this function will continue to be called periodically.
---If the first return value is slurm.SUCCESS and the second return value is
---empty or any other string besides "BUSY", then job and burst buffer state
---will proceed. If the first return value is not slurm.SUCCESS, then the job
---will be placed in a held state.
---
---If this function returns slurm.SUCCESS, slurm.SLURM_BB_BUSY for longer than
---StageInTimeout, then the job will be placed in a held state.
---]]
-function slurm_bb_test_data_in(job_id, job_script, uid, gid, job_info)
-	slurm.log_info("%s: slurm_bb_test_data_in(). job id:%s, job script:%s, uid:%s, gid:%s", lua_script_name, job_id, job_script, uid, gid)
-
-	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid)
-	if err ~= nil or conduit_jobs == nil then
-		return slurm.ERROR, "failed to parse directives: " .. err
-	end
-
-	-- get transferIDs from conduit and attach them to their respective job
-	for i, j in pairs(conduit_jobs) do
-		if j.jobType == CONDUIT_PRE then
-			transferID, err = j:getTransferIDFromConduit()
-			if err ~= "" then
-				return slurm.ERROR, "failed to get transfer ID for directive " .. j.jobIndex .. " " .. err
-			end
-			conduit_jobs[i].transferID = transferID
-		end
-	end
-
-	for i, j in pairs(conduit_jobs) do
-		if j.jobType == CONDUIT_PRE then
-			slurm.log_debug(j:stateCmd())
-			local done, state = exec_cmd(j:stateCmd())
-			-- local done, state = io_popen("echo TRANSFER_ERROR" .. i)
-
-			-- check if our describe command failed (this should really never happen unless there is a network issue)
-			if done == false then
-				slurm.log_debug(string.format("%s: slurm_bb_test_data_in(), jobIndex=%s, transferID=%s : failed to get transfer state", lua_script_name, j.jobIndex, transferID))
-
-				local response = "failed to get state for directive " .. j.jobIndex
-				return slurm.ERROR, response
-			end
-
-
-			-- make sure we get back a state that's a string
-			if type(state) ~= type("") then
-				slurm.log_debug(string.format("%s: slurm_bb_test_data_in(), jobIndex=%s, transferID=%s : failed to get transfer state", lua_script_name, j.jobIndex, transferID))
-				return slurm.ERROR, "failed to run transfer status command for directive " .. j.jobIndex .. " received invalid transfer state: " .. transferID
-			end
-			state = string.gsub(state, "%s", "")
-			state = string.gsub(state, "\"", "")
-
-			slurm.log_debug(state)
-
-			if state ~= "TRANSFER_ERROR" and state ~= "TRANSFER_FINALIZED" and state ~= "TRANSFER_ABORT" and state ~= "TRANSFER_ABORTED" then
-				return slurm.SUCCESS, slurm.SLURM_BB_BUSY
-			elseif state == "TRANSFER_ERROR" or state == "TRANSFER_ABORT" or state == "TRANSFER_ABORTED" then
-				local response = "transfer failed for directive " .. j.jobIndex
-				local errDone, err = exec_cmd(j:errorCmd())
-				local errMessageDone, errMessage = exec_cmd(j:errorMessageCmd())
-
-				if errDone == true and errMessageDone == true then
-					response = response .. ": " .. err .. " " .. errMessage
-				end
-				response = response .. ": " .. table.concat(j.userArgs, " ")
-				return slurm.ERROR, response
-			end
-		end
-	end
-
-	return slurm.SUCCESS, ""
-end
-
---[[
---slurm_bb_real_size
---
---This function is called asynchronously and is not required to return quickly.
---This function is called immediately after slurm_bb_test_data_in while the job
---is pending.
---
---This function is only called if pools are specified and the job requested a
---pool. This function may return a number (surrounded by quotes to make it a
---string) as the second return value. If it does, the job's usage of the pool
---will be changed to this number. A commented out example is given.
---]]
-function slurm_bb_real_size(job_id, uid, gid, job_info)
-	slurm.log_info("slurm_bb_real_size(). job id:%s, uid:%s, gid:%s",
-		job_id, uid, gid)
-	--return slurm.SUCCESS, "10000"
-	return slurm.SUCCESS
-end
-
---[[
---slurm_bb_paths
---
---WARNING: This function is called synchronously from slurmctld and must
---return quickly.
---This function is called after the job is scheduled but before the
---job starts running when the job is in a "running + configuring" state.
---
---The file specified by path_file is an empty file. If environment variables are
---written to path_file, these environment variables are added to the job's
---environment. A commented out example is given.
---]]
-function slurm_bb_paths(job_id, job_script, path_file, uid, gid, job_info)
-	slurm.log_info("slurm_bb_paths(). job id:%s, job script:%s, path file:%s, uid:%s, gid:%s",
-		job_id, job_script, path_file, uid, gid)
-	--io.output(path_file)
-	--io.write("FOO=BAR")
-	return slurm.SUCCESS
-end
-
---[[
---slurm_bb_pre_run
---
---This function is called asynchronously and is not required to return quickly.
---This function is called after the job is scheduled but before the
---job starts running when the job is in a "running + configuring" state.
---]]
-function slurm_bb_pre_run(job_id, job_script, uid, gid, job_info)
-	slurm.log_info("slurm_bb_pre_run(). job id:%s, job script:%s, uid:%s, gid:%s",
-		job_id, job_script, uid, gid)
-
-	return slurm.SUCCESS, ""
-end
-
---[[
---slurm_bb_post_run
---
---This function is called asynchronously and is not required to return quickly.
---This function is called after the job finishes. The job is in a "stage out"
---state.
---]]
-function slurm_bb_post_run(job_id, job_script, uid, gid, job_info)
-	slurm.log_info("slurm_post_run(). job id:%s, job script:%s, uid:%s, gid:%s",
-		job_id, job_script, uid, gid)
-	-- local rc, ret_str = sleep_wrapper(1)
-	return slurm.SUCCESS, ""
-end
-
---[[
---slurm_bb_data_out
---
---This function is called asynchronously and is not required to return quickly.
---This function is called after the job finishes immediately after
---slurm_bb_post_run. The job is in a "stage out" state.
---]]
-function slurm_bb_data_out(job_id, job_script, uid, gid, job_info)
-	slurm.log_info("slurm_bb_data_out(). job id:%s, job script:%s, uid:%s, gid:%s", job_id, job_script, uid, gid)
-
-
-	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid)
-	if err ~= nil or conduit_jobs == nil then
-		return slurm.ERROR, "failed to parse directives: " .. err
-	end
-
-	for i, j in pairs(conduit_jobs) do
-		if j.jobType == CONDUIT_POST then
-			local cmd, args = j:transferCmd()
-			slurm.log_debug(table.concat(args, " "))
-			local done, transferID = exec_cmd(cmd, args)
-			-- local done, transferID = io_popen("echo 3cb72039-e271-4ba4-bb03-74b28d7ad80" .. i)
-			-- make sure we get back a transferID that's a string
-			if type(transferID) ~= type("") then
-				slurm.log_debug(string.format("%s: slurm_bb_data_out(), jobIndex=%s, transferID=%s : failed to run transfer command", lua_script_name, j.jobIndex, transferID))
-				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid transferID: " .. transferID
-			end
-			j.transferID = string.gsub(transferID, "%s", "")
-			j.transferID = string.gsub(j.transferID, "\"", "")
-
-			if not Is_uuid(j.transferID) then
-				slurm.log_debug(string.format("%s: slurm_bb_data_out(), jobIndex=%s, transferID=%s : failed to run transfer command", lua_script_name, j.jobIndex, j.transferID))
-				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid transferID: " .. transferID
-			end
-
-			-- done = false
-			if done == false then
-				slurm.log_debug(string.format("%s: slurm_bb_data_out(), jobIndex=%s, transferID=%s : failed to run transfer command", lua_script_name, j.jobIndex, transferID))
-
-				local response = "transfer failed for directive " .. j.jobIndex
-				local errDone, err = exec_cmd(j:errorCmd())
-				local errMessageDone, errMessage = exec_cmd(j:errorMessageCmd())
-
-				-- errDone = true
-				-- errMessageDone = true
-				-- err = "CONDUIT_ERROR"
-				-- errMessage = "this is a conduit error message"
-
-				if errDone == true and errMessageDone == true then
-					response = response .. ": " .. err .. " " .. errMessage
-				end
-				response = response .. ": " .. table.concat(j.userArgs, " ")
-				return slurm.ERROR, response
-			end
-		end
-	end
-
-	return slurm.SUCCESS, ""
-end
-
---[[
---slurm_bb_test_data_out
---
---This function is called asynchronously and is not required to return quickly.
---This function is called immediately after slurm_bb_data_out while the job is
---pending.
---
---This function is meant to be used to poll if data_out has completed.
---If the first return value is slurm.SUCCESS and the second return value is
---"BUSY" (or slurm.SLURM_BB_BUSY), then the job will stay in the completing
---state and this function will continue to be called periodically.
---If the first return value is slurm.SUCCESS and the second return value is
---empty or any other string besides "BUSY", then job and burst buffer state
---will proceed. If the first return value is not slurm.SUCCESS, then the job
---will be placed in a held state.
---]]
-function slurm_bb_test_data_out(job_id, job_script, uid, gid, job_info)
-	slurm.log_info("%s: slurm_bb_test_data_out(). job id:%s, job script:%s, uid:%s, gid:%s", lua_script_name, job_id, job_script, uid, gid)
-
-	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid)
-	if err ~= nil or conduit_jobs == nil then
-		return slurm.ERROR, "failed to parse directives: " .. err
-	end
-
-	-- get transferIDs from conduit and attach them to their respective job
-	for i, j in pairs(conduit_jobs) do
-		if j.jobType == CONDUIT_POST then
-			transferID, err = j:getTransferIDFromConduit()
-			if err ~= "" then
-				return slurm.ERROR, "failed to get transfer ID for directive " .. j.jobIndex .. " " .. err
-			end
-			conduit_jobs[i].transferID = transferID
-		end
-	end
-
-	for i, j in pairs(conduit_jobs) do
-		if j.jobType == CONDUIT_POST then
-			slurm.log_debug(j:stateCmd())
-			local done, state = exec_cmd(j:stateCmd())
-			-- local done, state = io_popen("echo TRANSFER_ERROR" .. i)
-
-			-- check if our describe command failed (this should really never happen unless there is a network issue)
-			if done == false then
-				slurm.log_error(string.format("%s: slurm_bb_test_data_out(), jobIndex=%s, transferID=%s : failed to get transfer state", lua_script_name, j.jobIndex, transferID))
-
-				local response = "failed to get state for directive " .. j.jobIndex
-				return slurm.ERROR, response
-			end
-
-
-			-- make sure we get back a state that's a string
-			if type(state) ~= type("") then
-				slurm.log_error(string.format("%s: slurm_bb_test_data_out(), jobIndex=%s, transferID=%s : failed to get transfer state", lua_script_name, j.jobIndex, transferID))
-				return slurm.ERROR, "failed to run transfer status command for directive " .. j.jobIndex .. " received invalid transfer state: " .. transferID
-			end
-			state = string.gsub(state, "%s", "")
-			state = string.gsub(state, "\"", "")
-
-			if state ~= "TRANSFER_ERROR" and state ~= "TRANSFER_FINALIZED" and state ~= "TRANSFER_ABORT" and state ~= "TRANSFER_ABORTED" then
-				return slurm.SUCCESS, slurm.SLURM_BB_BUSY
-			elseif state == "TRANSFER_ERROR" or state == "TRANSFER_ABORT" or state == "TRANSFER_ABORTED" then
-				local response = "transfer failed for directive " .. j.jobIndex
-
-				local errDone, err = exec_cmd(j:errorCmd())
-				local errMessageDone, errMessage = exec_cmd(j:errorMessageCmd())
-
-				if errDone == true and errMessageDone == true then
-					response = response .. ": " .. err .. " " .. errMessage
-				end
-				response = response .. ": " .. table.concat(j.userArgs, " ")
-				return slurm.ERROR, response
-			end
-		end
-	end
-
-	return slurm.SUCCESS, ""
-end
-
---[[
---slurm_bb_get_status
---
---This function is called asynchronously and is not required to return quickly.
---
---This function is called when "scontrol show bbstat" is run. It receives the
---authenticated user id and group id of the caller, as well as a variable
---number of arguments - whatever arguments are after "bbstat".
---For example:
---
---  scontrol show bbstat foo bar
---
---This command will pass 2 arguments after uid and gid to this function:
---  "foo" and "bar".
---
---If this function returns slurm.SUCCESS, then this function's second return
---value will be printed where the scontrol command was run. If this function
---returns slurm.ERROR, then this function's second return value is ignored and
---an error message will be printed instead.
---]]
-function slurm_bb_get_status(uid, gid, ...)
-	--slurm.log_info("%s: slurm_bb_get_status(). uid:%s, gid:%s", lua_script_name, uid, gid)
-
-	local ret = slurm.ERROR
-	local msg = "Usage: conduit <slurm-job-id>"
-
-	-- Create a table from variable arg list
-	-- NOTE: The args[] array index begins at 1.
-	local args = { ... }
-	args.n = select("#", ...)
-
-	local found_jid = false
-	local jid = 0
-	if args.n == 2 and args[1] == "conduit" then
-		jid = args[2]
-		found_jid = true
-	end
-	if found_jid == true then
-		local done = false
-		local status = ""
-		if string.find(jid, "^%d+$") == nil then
-			msg = "A job ID must contain only digits."
-		else
-			done, status = exec_cmd(SlurmIDStateCmd(jid, uid))
-		end
-		if done == true then
-			ret = slurm.SUCCESS
-			msg = status
-		else
-			msg = "failed to run status command: " .. SlurmIDStateCmd(jid, uid)
-		end
-	end
-
-	if ret == slurm.ERROR then
-		slurm.log_error("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
-	end
-	return ret, msg
+	return true, ""
 end
 
 local function tokenize(s)
@@ -1015,9 +417,8 @@ local function tokenize(s)
 	return t
 end
 
-
-function parse_conduit_directives(job_script, jobID, uid)
-	Conduit_directives = {}
+local function parse_conduit_directives(job_script, jobID, uid, work_dir)
+	local Conduit_directives = {}
 	local idx = 1
 	local bb
 	-- local line
@@ -1071,9 +472,14 @@ function parse_conduit_directives(job_script, jobID, uid)
 			end
 
 			-- tokenize the line
-			local toks, err = tokenize(cmd); if not toks then return false, err end
+			local toks, err = tokenize(cmd)
+			if not toks then return nil, err end
 
-			Job = CONDUIT_JOB:new(jobID, jobType, idx, toks, uid)
+			local ok
+			ok, err = validate_user_args(toks)
+			if not ok then return nil, err end
+
+			local Job = CONDUIT_JOB:new(jobID, jobType, idx, toks, uid, work_dir)
 
 			-- create conduit job
 			Conduit_directives[idx] = Job
@@ -1084,19 +490,668 @@ function parse_conduit_directives(job_script, jobID, uid)
 	return Conduit_directives
 end
 
-function Is_uuid(str)
-	-- optional single or double quote at start and end
-	return str:match([[^["']?%x%x%x%x%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%-%x%x%x%x%x%x%x%x%x%x%x%x["']?$]]) ~= nil
+local function get_work_dir(job_info)
+	if type(job_info) ~= "table" then
+		return ""
+	end
+
+	local work_dir = job_info["work_dir"]
+	if type(work_dir) == "string" and work_dir ~= "" then
+		return work_dir
+	end
+
+	return ""
+end
+
+--[[
+--slurm_bb_job_process
+--
+--WARNING: This function is called synchronously from slurmctld and must
+--return quickly.
+--
+--This function is called on job submission.
+--
+--Send our job to conduit as a "validation" job. This will only run validation so we can verify permissions will work out
+--]]
+function slurm_bb_job_process(job_script, uid, gid, job_info)
+	slurm.log_debug("conduit bb process")
+	local contents
+	local job_id = job_info["job_id"]
+	local work_dir = get_work_dir(job_info)
+	slurm.log_info("%s: slurm_bb_job_process(). job_script=%s, uid=%s, gid=%s, job_id=%s, work_dir=%s", lua_script_name, job_script, uid, gid, job_id, work_dir)
+	io.input(job_script)
+	contents = io.read("*all")
+
+	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid, work_dir)
+	if err ~= nil or conduit_jobs == nil then
+		slurm.log_error("failed to parse directives: " .. err)
+		return slurm.ERROR, "failed to parse directives: " .. err
+	end
+
+	for i, j in pairs(conduit_jobs) do
+		if j.jobType == CONDUIT_PRE then
+			local cmd, args = j:validationCmd()
+			slurm.log_debug(table.concat(args, " "))
+			local done, output = exec_cmd(cmd, args)
+
+			if type(output) ~= "string" then
+				slurm.log_debug(string.format("%s: slurm_bb_job_process(), jobIndex=%s, output=%s : failed to run validation command", lua_script_name, j.jobIndex, tostring(output)))
+				return slurm.ERROR, "failed to run validation command for directive " .. j.jobIndex .. " received invalid output: " .. tostring(output)
+			end
+
+			local transferID = Extract_uuid(output)
+
+			slurm.log_debug("sent validation to conduit: " .. output)
+
+			-- done == false means the command failed
+			if done == false then
+				slurm.log_debug(string.format("%s: slurm_bb_job_process(), jobIndex=%s, output=%s : failed to run validation command", lua_script_name, j.jobIndex, tostring(output)))
+
+				local response = "validation failed for directive " .. j.jobIndex .. ": " .. output
+
+				if Is_uuid(transferID) then
+					j.transferID = transferID
+
+					local eCmd, eArgs = j:errorCmd()
+					local emCmd, emArgs = j:errorMessageCmd()
+					local errDone, err = exec_cmd(eCmd, eArgs)
+					local errMessageDone, errMessage = exec_cmd(emCmd, emArgs)
+
+					slurm.log_debug(string.format("%s: slurm_bb_job_process(), errDone=[%s], err=[%s]", lua_script_name, tostring(errDone), tostring(err)))
+					slurm.log_debug(string.format("%s: slurm_bb_job_process(), errMessageDone=[%s], errMessage=[%s]", lua_script_name, tostring(errMessageDone), tostring(errMessage)))
+
+					if errDone == true and errMessageDone == true then
+						response = response .. ": " .. err .. " " .. errMessage
+					end
+				end
+
+				response = response .. ": " .. table.concat(j.userArgs, " ")
+				return slurm.ERROR, response
+			end
+
+			if not Is_uuid(transferID) then
+				return slurm.ERROR, "failed to run validation command for directive " .. j.jobIndex .. " received invalid transferID: " .. tostring(output)
+			end
+
+			j.transferID = transferID
+		end
+	end
+
+	return slurm.SUCCESS, contents
+end
+
+--[[
+--slurm_bb_pools
+--
+--WARNING: This function is called from slurmctld and must return quickly.
+--
+--This function is called on slurmctld startup, and then periodically while
+--slurmctld is running.
+--
+--You may specify "pools" of resources here. If you specify pools, a job may
+--request a specific pool and the amount it wants from the pool. Slurm will
+--subtract the job's usage from the pool at slurm_bb_data_in and Slurm will
+--add the job's usage of those resources back to the pool after
+--slurm_bb_teardown.
+--A job may choose not to specify a pool even you pools are provided.
+--If pools are not returned here, Slurm does not track burst buffer resources
+--used by jobs.
+--
+--If pools are desired, they must be returned as the second return value
+--of this function. It must be a single JSON string representing the pools.
+--]]
+function slurm_bb_pools()
+	-- conduit does not use slurm_bb_pools
+	return slurm.SUCCESS
 end
 
 -- Scancel will run the Slurm scancel command and collect its output.
 -- On success this returns true and the output of the command.
 -- On failure this returns false and the output of the command.
-function Scancel(jobId, hurry)
-	local hurry_opt = ""
+local function Scancel(jobId, hurry)
+	local args = {}
+
 	if hurry == true then
-		hurry_opt = "--hurry "
+		args[#args + 1] = "--hurry"
 	end
-	local scmd = "scancel " .. hurry_opt .. jobId
-	return io_popen(scmd)
+
+	args[#args + 1] = tostring(jobId)
+
+	return exec_cmd("scancel", args)
+end
+
+--[[
+--slurm_bb_job_teardown
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is normally called after the job completes (or is cancelled).
+--
+-- Conduit aborts any running jobs during
+--]]
+function slurm_bb_job_teardown(job_id, job_script, hurry, uid, gid)
+	slurm.log_info("slurm_bb_job_teardown(). job id:%s, job script:%s, hurry:%s, uid:%s, gid:%s", job_id, job_script, hurry, uid, gid)
+
+	local hurry_flag = false
+	if hurry == "true" then
+		hurry_flag = true
+	end
+
+	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid, nil)
+	if err ~= nil or conduit_jobs == nil then
+		return slurm.ERROR, "failed to parse directives: " .. err
+	end
+
+
+	-- local jobs_actives = {}
+
+	-- get transferIDs from conduit and attach them to their respective job
+	for i, j in pairs(conduit_jobs) do
+		local exists = false
+		exists, err = TransferExistsCmd(j:comment(), uid)
+		if err ~= "" then
+			return slurm.ERROR, "failed to check if directive exists in conduit " .. j.jobIndex .. " " .. err
+		end
+
+		if exists then
+			slurm.log_debug(string.format("transfer for directive %s exists", j.jobIndex))
+			local transferID, err = j:getTransferIDFromConduit()
+			if err ~= "" then
+				return slurm.ERROR, "failed to get transfer ID for directive " .. j.jobIndex .. " " .. err
+			end
+			conduit_jobs[i].transferID = transferID
+		else
+			slurm.log_debug(string.format("transfer for directive %s does not exist", j.jobIndex))
+		end
+	end
+
+	-- if we got a trasnfer id for any jobs, abort them
+	for i, j in pairs(conduit_jobs) do
+		if j.transferID ~= "" then
+			local cmd, args = j:activeCmd()
+			local done, active = exec_cmd(cmd, args)
+			slurm.log_debug(table.concat(args, " "))
+
+			-- check if our describe command failed (this should really never happen unless there is a network issue)
+			if done == false then
+				slurm.log_error(string.format("%s: slurm_bb_job_teardown(), jobIndex=%s, transferID=%s : failed to get transfer active state", lua_script_name, j.jobIndex, j.transferID))
+
+				local response = "failed to get active state for directive " .. j.jobIndex
+				return slurm.ERROR, response
+			end
+
+
+			-- make sure we get back a state that's a string
+			if type(active) ~= type("") then
+				slurm.log_error(string.format("%s: slurm_bb_job_teardown(), jobIndex=%s, output=%s : failed to get transfer active state", lua_script_name, j.jobIndex, tostring(active)))
+				return slurm.ERROR, "failed to run transfer active status command for directive " .. j.jobIndex .. " received invalid active state: " .. tostring(active)
+			end
+			active = string.gsub(active, "%s", "")
+			active = string.gsub(active, "\"", "")
+
+			if active == "true" then
+				-- the job is still active
+				if hurry_flag == true then
+					-- we're in a hurry, attempt to abort the job
+					local cmd, args = j:abortCmd()
+					slurm.log_debug(table.concat(args, " "))
+					local done, transferID = exec_cmd(cmd, args)
+					if done == false then
+						slurm.log_error(string.format("%s: slurm_bb_job_teardown(), jobIndex=%s, output=%s : failed to get transfer active state", lua_script_name, j.jobIndex, tostring(transferID)))
+
+						local response = "failed to abort transfer for directive " .. j.jobIndex .. " transferid: " .. j.transferID
+						return slurm.ERROR, response
+					end
+				else
+					-- we're not in a hurry, wait for the transfer to complete
+					local cmd, args = j:watchCmd()
+					slurm.log_debug(table.concat(args, " "))
+					local done, transferID = exec_cmd(cmd, args)
+					if done == false then
+						slurm.log_error(string.format("%s: slurm_bb_job_teardown(), jobIndex=%s, output=%s : failed to get transfer active state", lua_script_name, j.jobIndex, tostring(transferID)))
+
+						local response = "failed to watch state for directive " .. j.jobIndex .. " transferid: " .. j.transferID
+						return slurm.ERROR, response
+					end
+				end
+			end
+		end
+	end
+
+	slurm.log_info("all transfers teardown successful, sending best-effort scancel")
+	local done, output = Scancel(job_id, hurry_flag)
+
+	if done then
+		slurm.log_debug(string.format("successfully sent scancel command for job %s: %s", job_id, tostring(output)))
+	else
+		slurm.log_info(string.format("best-effort scancel failed for job %s: %s", job_id, tostring(output)))
+	end
+
+	return slurm.SUCCESS, ""
+end
+
+--[[
+--slurm_bb_setup
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is called while the job is pending.
+--]]
+function slurm_bb_setup(job_id, uid, gid, pool, bb_size, job_script, job_info)
+	slurm.log_info("slurm_bb_setup(). job id:%s, uid: %s, gid:%s, pool:%s, size:%s, job script:%s", job_id, uid, gid, pool, bb_size, job_script)
+
+	return slurm.SUCCESS
+end
+
+--[[
+--slurm_bb_data_in
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is called immediately after slurm_bb_setup while the job is
+--pending.
+--]]
+function slurm_bb_data_in(job_id, job_script, uid, gid, job_info)
+	local work_dir = get_work_dir(job_info)
+
+	slurm.log_info("slurm_bb_data_in(). job id:%s, job script:%s, uid:%s, gid:%s, work_dir:%s", job_id, job_script, uid, gid, work_dir)
+
+	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid, work_dir)
+	if err ~= nil or conduit_jobs == nil then
+		return slurm.ERROR, "failed to parse directives: " .. err
+	end
+
+	slurm.log_debug("parsed conduit directives successfully")
+
+	for i, j in pairs(conduit_jobs) do
+		if j.jobType == CONDUIT_PRE then
+			local cmd, args = j:transferCmd()
+			slurm.log_debug(table.concat(args, " "))
+			local done, output = exec_cmd(cmd, args)
+			-- make sure we get back a transferID that's a string
+			if type(output) ~= "string" then
+				slurm.log_debug(string.format("%s: slurm_bb_data_in(), jobIndex=%s, output=%s : failed to run transfer command", lua_script_name, j.jobIndex, tostring(output)))
+				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid output: " .. tostring(output)
+			end
+
+			local transferID = Extract_uuid(output)
+
+			if done == false then
+				slurm.log_debug(string.format("%s: slurm_bb_data_in(), jobIndex=%s, output=%s : failed to run transfer command", lua_script_name, j.jobIndex, tostring(output)))
+
+				local response = "transfer failed for directive " .. j.jobIndex .. ": " .. output
+
+				if Is_uuid(transferID) then
+					j.transferID = transferID
+
+					local eCmd, eArgs = j:errorCmd()
+					local emCmd, emArgs = j:errorMessageCmd()
+					local errDone, err = exec_cmd(eCmd, eArgs)
+					local errMessageDone, errMessage = exec_cmd(emCmd, emArgs)
+
+					slurm.log_debug(string.format("%s: slurm_bb_data_in(), errDone=[%s], err=[%s]", lua_script_name, tostring(errDone), tostring(err)))
+					slurm.log_debug(string.format("%s: slurm_bb_data_in(), errMessageDone=[%s], errMessage=[%s]", lua_script_name, tostring(errMessageDone), tostring(errMessage)))
+
+					if errDone == true and errMessageDone == true then
+						response = response .. ": " .. err .. " " .. errMessage
+					end
+				end
+
+				response = response .. ": " .. table.concat(j.userArgs, " ")
+				return slurm.ERROR, response
+			end
+
+			if not Is_uuid(transferID) then
+				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid transferID: " .. tostring(output)
+			end
+
+			j.transferID = transferID
+		end
+	end
+
+	return slurm.SUCCESS, ""
+end
+
+--[[
+--slurm_bb_test_data_in
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is called immediately after slurm_bb_data_in while the job is
+--pending.
+--
+--This function is meant to be used to poll if data_in has completed.
+--If the first return value is slurm.SUCCESS and the second return value is
+--"BUSY" (or slurm.SLURM_BB_BUSY), then the job will continue to pend and
+--this function will continue to be called periodically.
+--If the first return value is slurm.SUCCESS and the second return value is
+--empty or any other string besides "BUSY", then job and burst buffer state
+--will proceed. If the first return value is not slurm.SUCCESS, then the job
+--will be placed in a held state.
+--
+--If this function returns slurm.SUCCESS, slurm.SLURM_BB_BUSY for longer than
+--StageInTimeout, then the job will be placed in a held state.
+--]]
+function slurm_bb_test_data_in(job_id, job_script, uid, gid, job_info)
+	local work_dir = get_work_dir(job_info)
+
+	slurm.log_info("%s: slurm_bb_test_data_in(). job id:%s, job script:%s, uid:%s, gid:%s, work_dir:%s", lua_script_name, job_id, job_script, uid, gid, work_dir)
+
+	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid, work_dir)
+	if err ~= nil or conduit_jobs == nil then
+		return slurm.ERROR, "failed to parse directives: " .. err
+	end
+
+	-- get transferIDs from conduit and attach them to their respective job
+	for i, j in pairs(conduit_jobs) do
+		if j.jobType == CONDUIT_PRE then
+			local transferID, err = j:getTransferIDFromConduit()
+			if err ~= "" then
+				return slurm.ERROR, "failed to get transfer ID for directive " .. j.jobIndex .. " " .. err
+			end
+			conduit_jobs[i].transferID = transferID
+		end
+	end
+
+	for i, j in pairs(conduit_jobs) do
+		if j.jobType == CONDUIT_PRE then
+			local cmd, args = j:stateCmd()
+			slurm.log_debug("cmd: %s %s", cmd, table.concat(args, " "))
+			local done, state = exec_cmd(cmd, args)
+
+			-- check if our describe command failed (this should really never happen unless there is a network issue)
+			if done == false then
+				slurm.log_debug(string.format("%s: slurm_bb_test_data_in(), jobIndex=%s, output=%s : failed to get transfer state", lua_script_name, j.jobIndex, tostring(state)))
+
+				local response = "failed to get state for directive " .. j.jobIndex
+				return slurm.ERROR, response
+			end
+
+
+			-- make sure we get back a state that's a string
+			if type(state) ~= type("") then
+				slurm.log_debug(string.format("%s: slurm_bb_test_data_in(), jobIndex=%s, output=%s : failed to get transfer state", lua_script_name, j.jobIndex, tostring(state)))
+				return slurm.ERROR, "failed to run transfer status command for directive " .. j.jobIndex .. " received invalid transfer state: " .. tostring(state)
+			end
+			state = string.gsub(state, "%s", "")
+			state = string.gsub(state, "\"", "")
+
+			if state ~= "TRANSFER_ERROR" and state ~= "TRANSFER_FINALIZED" and state ~= "TRANSFER_ABORT" and state ~= "TRANSFER_ABORTED" then
+				return slurm.SUCCESS, slurm.SLURM_BB_BUSY
+			elseif state == "TRANSFER_ERROR" or state == "TRANSFER_ABORT" or state == "TRANSFER_ABORTED" then
+				local response = "transfer failed for directive " .. j.jobIndex
+				local errDone, err = exec_cmd(j:errorCmd())
+				local errMessageDone, errMessage = exec_cmd(j:errorMessageCmd())
+
+				if errDone == true and errMessageDone == true then
+					response = response .. ": " .. err .. " " .. errMessage
+				end
+				response = response .. ": " .. table.concat(j.userArgs, " ")
+				return slurm.ERROR, response
+			end
+		end
+	end
+
+	return slurm.SUCCESS, ""
+end
+
+--[[
+--slurm_bb_real_size
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is called immediately after slurm_bb_test_data_in while the job
+--is pending.
+--
+--This function is only called if pools are specified and the job requested a
+--pool. This function may return a number (surrounded by quotes to make it a
+--string) as the second return value. If it does, the job's usage of the pool
+--will be changed to this number. A commented out example is given.
+--]]
+function slurm_bb_real_size(job_id, uid, gid, job_info)
+	slurm.log_info("slurm_bb_real_size(). job id:%s, uid:%s, gid:%s", job_id, uid, gid)
+	--return slurm.SUCCESS, "10000"
+	return slurm.SUCCESS
+end
+
+--[[
+--slurm_bb_paths
+--
+--WARNING: This function is called synchronously from slurmctld and must
+--return quickly.
+--This function is called after the job is scheduled but before the
+--job starts running when the job is in a "running + configuring" state.
+--
+--The file specified by path_file is an empty file. If environment variables are
+--written to path_file, these environment variables are added to the job's
+--environment. A commented out example is given.
+--]]
+function slurm_bb_paths(job_id, job_script, path_file, uid, gid, job_info)
+	slurm.log_info("slurm_bb_paths(). job id:%s, job script:%s, path file:%s, uid:%s, gid:%s", job_id, job_script, path_file, uid, gid)
+	--io.output(path_file)
+	--io.write("FOO=BAR")
+	return slurm.SUCCESS
+end
+
+--[[
+--slurm_bb_pre_run
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is called after the job is scheduled but before the
+--job starts running when the job is in a "running + configuring" state.
+--]]
+function slurm_bb_pre_run(job_id, job_script, uid, gid, job_info)
+	slurm.log_info("slurm_bb_pre_run(). job id:%s, job script:%s, uid:%s, gid:%s", job_id, job_script, uid, gid)
+
+	return slurm.SUCCESS, ""
+end
+
+--[[
+--slurm_bb_post_run
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is called after the job finishes. The job is in a "stage out"
+--state.
+--]]
+function slurm_bb_post_run(job_id, job_script, uid, gid, job_info)
+	slurm.log_info("slurm_post_run(). job id:%s, job script:%s, uid:%s, gid:%s", job_id, job_script, uid, gid)
+	-- local rc, ret_str = sleep_wrapper(1)
+	return slurm.SUCCESS, ""
+end
+
+--[[
+--slurm_bb_data_out
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is called after the job finishes immediately after
+--slurm_bb_post_run. The job is in a "stage out" state.
+--]]
+function slurm_bb_data_out(job_id, job_script, uid, gid, job_info)
+	local work_dir = get_work_dir(job_info)
+
+	slurm.log_info("slurm_bb_data_out(). job id:%s, job script:%s, uid:%s, gid:%s, work_dir:%s", job_id, job_script, uid, gid, work_dir)
+
+	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid, work_dir)
+	if err ~= nil or conduit_jobs == nil then
+		return slurm.ERROR, "failed to parse directives: " .. err
+	end
+
+	for i, j in pairs(conduit_jobs) do
+		if j.jobType == CONDUIT_POST then
+			local cmd, args = j:transferCmd()
+			slurm.log_debug(table.concat(args, " "))
+			local done, output = exec_cmd(cmd, args)
+			-- make sure we get back a transferID that's a string
+			if type(output) ~= "string" then
+				slurm.log_debug(string.format("%s: slurm_bb_data_out(), jobIndex=%s, output=%s : failed to run transfer command", lua_script_name, j.jobIndex, tostring(output)))
+				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid output: " .. tostring(output)
+			end
+
+			local transferID = Extract_uuid(output)
+
+			if done == false then
+				slurm.log_debug(string.format("%s: slurm_bb_data_out(), jobIndex=%s, output=%s : failed to run transfer command", lua_script_name, j.jobIndex, tostring(output)))
+
+				local response = "transfer failed for directive " .. j.jobIndex .. ": " .. output
+
+				if Is_uuid(transferID) then
+					j.transferID = transferID
+
+					local eCmd, eArgs = j:errorCmd()
+					local emCmd, emArgs = j:errorMessageCmd()
+					local errDone, err = exec_cmd(eCmd, eArgs)
+					local errMessageDone, errMessage = exec_cmd(emCmd, emArgs)
+
+					slurm.log_debug(string.format("%s: slurm_bb_data_out(), errDone=[%s], err=[%s]", lua_script_name, tostring(errDone), tostring(err)))
+					slurm.log_debug(string.format("%s: slurm_bb_data_out(), errMessageDone=[%s], errMessage=[%s]", lua_script_name, tostring(errMessageDone), tostring(errMessage)))
+
+					if errDone == true and errMessageDone == true then
+						response = response .. ": " .. err .. " " .. errMessage
+					end
+				end
+
+				response = response .. ": " .. table.concat(j.userArgs, " ")
+				return slurm.ERROR, response
+			end
+
+			if not Is_uuid(transferID) then
+				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid transferID: " .. tostring(output)
+			end
+
+			j.transferID = transferID
+		end
+	end
+
+	return slurm.SUCCESS, ""
+end
+
+--[[
+--slurm_bb_test_data_out
+--
+--This function is called asynchronously and is not required to return quickly.
+--This function is called immediately after slurm_bb_data_out while the job is
+--pending.
+--
+--This function is meant to be used to poll if data_out has completed.
+--If the first return value is slurm.SUCCESS and the second return value is
+--"BUSY" (or slurm.SLURM_BB_BUSY), then the job will stay in the completing
+--state and this function will continue to be called periodically.
+--If the first return value is slurm.SUCCESS and the second return value is
+--empty or any other string besides "BUSY", then job and burst buffer state
+--will proceed. If the first return value is not slurm.SUCCESS, then the job
+--will be placed in a held state.
+--]]
+function slurm_bb_test_data_out(job_id, job_script, uid, gid, job_info)
+	local work_dir = get_work_dir(job_info)
+
+	slurm.log_info("%s: slurm_bb_test_data_out(). job id:%s, job script:%s, uid:%s, gid:%s, work_dir:%s", lua_script_name, job_id, job_script, uid, gid, work_dir)
+
+	local conduit_jobs, err = parse_conduit_directives(job_script, job_id, uid, work_dir)
+	if err ~= nil or conduit_jobs == nil then
+		return slurm.ERROR, "failed to parse directives: " .. err
+	end
+
+	-- get transferIDs from conduit and attach them to their respective job
+	for i, j in pairs(conduit_jobs) do
+		if j.jobType == CONDUIT_POST then
+			local transferID, err = j:getTransferIDFromConduit()
+			if err ~= "" then
+				return slurm.ERROR, "failed to get transfer ID for directive " .. j.jobIndex .. " " .. err
+			end
+			conduit_jobs[i].transferID = transferID
+		end
+	end
+
+	for i, j in pairs(conduit_jobs) do
+		if j.jobType == CONDUIT_POST then
+			local cmd, args = j:stateCmd()
+			slurm.log_debug("cmd: %s %s", cmd, table.concat(args, " "))
+			local done, state = exec_cmd(cmd, args)
+
+			-- check if our describe command failed (this should really never happen unless there is a network issue)
+			if done == false then
+				slurm.log_error(string.format("%s: slurm_bb_test_data_out(), jobIndex=%s, output=%s : failed to get transfer state", lua_script_name, j.jobIndex, tostring(state)))
+
+				local response = "failed to get state for directive " .. j.jobIndex
+				return slurm.ERROR, response
+			end
+
+
+			-- make sure we get back a state that's a string
+			if type(state) ~= type("") then
+				slurm.log_error(string.format("%s: slurm_bb_test_data_out(), jobIndex=%s, output=%s : failed to get transfer state", lua_script_name, j.jobIndex, tostring(state)))
+				return slurm.ERROR, "failed to run transfer status command for directive " .. j.jobIndex .. " received invalid transfer state: " .. tostring(state)
+			end
+			state = string.gsub(state, "%s", "")
+			state = string.gsub(state, "\"", "")
+
+			if state ~= "TRANSFER_ERROR" and state ~= "TRANSFER_FINALIZED" and state ~= "TRANSFER_ABORT" and state ~= "TRANSFER_ABORTED" then
+				return slurm.SUCCESS, slurm.SLURM_BB_BUSY
+			elseif state == "TRANSFER_ERROR" or state == "TRANSFER_ABORT" or state == "TRANSFER_ABORTED" then
+				local response = "transfer failed for directive " .. j.jobIndex
+
+				local errDone, err = exec_cmd(j:errorCmd())
+				local errMessageDone, errMessage = exec_cmd(j:errorMessageCmd())
+
+				if errDone == true and errMessageDone == true then
+					response = response .. ": " .. err .. " " .. errMessage
+				end
+				response = response .. ": " .. table.concat(j.userArgs, " ")
+				return slurm.ERROR, response
+			end
+		end
+	end
+
+	return slurm.SUCCESS, ""
+end
+
+--[[
+--slurm_bb_get_status
+--
+--This function is called asynchronously and is not required to return quickly.
+--
+--This function is called when "scontrol show bbstat" is run. It receives the
+--authenticated user id and group id of the caller, as well as a variable
+--number of arguments - whatever arguments are after "bbstat".
+--For example:
+--
+--  scontrol show bbstat foo bar
+--
+--This command will pass 2 arguments after uid and gid to this function:
+--  "foo" and "bar".
+--
+--If this function returns slurm.SUCCESS, then this function's second return
+--value will be printed where the scontrol command was run. If this function
+--returns slurm.ERROR, then this function's second return value is ignored and
+--an error message will be printed instead.
+--]]
+function slurm_bb_get_status(uid, gid, ...)
+	local args = { ... }
+	local argc = select("#", ...)
+
+	if argc ~= 2 or args[1] ~= "conduit" then
+		local msg = "Usage: conduit <slurm-job-id>"
+		slurm.log_debug("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
+		return slurm.SUCCESS, msg
+	end
+
+	local jid = args[2]
+	if string.find(jid, "^%d+$") == nil then
+		local msg = "A job ID must contain only digits."
+		slurm.log_debug("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
+		return slurm.SUCCESS, msg
+	end
+
+	local cmd, cmd_args = SlurmIDStateCmd(jid, uid)
+	local done, status = exec_cmd(cmd, cmd_args)
+
+	if done == true then
+		return slurm.SUCCESS, status
+	end
+
+	local msg = string.format(
+		"failed to run status command: %s %s: %s",
+		cmd,
+		table.concat(cmd_args, " "),
+		tostring(status)
+	)
+
+	slurm.log_error("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
+
+	return slurm.ERROR, msg
 end

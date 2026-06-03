@@ -279,10 +279,14 @@ func getKrbClient(logger *logrus.Logger, servicePrincipalName string, quiet bool
 }
 
 // StartTransfer sends a GRPC transfer request to the conduit server
-func (cc *ConduitClient) StartTransfer(action proto.Action, src []string, dst string, skipValidation bool, skipStat bool, pauseState proto.TransferState, validationOnly bool, user string, comment string) (*proto.TransferDetails, error) {
+func (cc *ConduitClient) StartTransfer(action proto.Action, src []string, dst string, skipValidation bool, skipStat bool, pauseState proto.TransferState, validationOnly bool, user string, comment string, workdir string) (*proto.TransferDetails, error) {
 	notifyOfChangedPath := false
 	cleanSrc := []string{}
 	for _, s := range src {
+		// if the source isn't already an absolute path, prepend the custom working directory if one was provided
+		if workdir != "" && !filepath.IsAbs(s) {
+			s = filepath.Join(workdir, s)
+		}
 		as, err := filepath.Abs(s)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get absolute path for source[%v]: %v", s, err)
@@ -307,6 +311,10 @@ func (cc *ConduitClient) StartTransfer(action proto.Action, src []string, dst st
 	if len(cleanSrc) == 0 {
 		// fmt.Printf("no valid sources have been provided, check earlier error messages\n")
 		return nil, fmt.Errorf("no valid sources have been provided, check earlier error messages")
+	}
+	// if the destination isn't already an absolute path, prepend the custom working directory if one was provided
+	if workdir != "" && !filepath.IsAbs(dst) {
+		dst = filepath.Join(workdir, dst)
 	}
 	cleanDst, err := filepath.Abs(dst)
 	if err != nil {
