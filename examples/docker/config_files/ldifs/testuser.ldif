@@ -1,22 +1,17 @@
-dn: dc=example,dc=com
-dc: example
-objectClass: dcObject
-objectClass: organization
-o: Example, Inc
+version: 1
 
-dn: ou=users,dc=example,dc=com
-ou: users
-objectClass: organizationalunit
-
-# testuser, users, example.com
-dn: cn=testuser,ou=users,dc=example,dc=com
-cn: testuser
-sn: testuser
+dn: uid=testuser,ou=Users,dc=example,dc=com
+objectClass: top
+objectClass: person
+objectClass: organizationalPerson
 objectClass: inetOrgPerson
 objectClass: posixAccount
 objectClass: shadowAccount
-userPassword:: cGFzc3dvcmQ=
+cn: testuser
+sn: testuser
 uid: testuser
 uidNumber: 1433
 gidNumber: 1433
 homeDirectory: /home/testuser
+loginShell: /bin/bash
+userPassword:: cGFzc3dvcmQ=

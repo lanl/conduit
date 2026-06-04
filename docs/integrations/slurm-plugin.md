@@ -224,32 +224,144 @@ The plugin manages transfers through Slurm's job stages:
 
 ## Monitoring
 
-### Check Job Status
+There are three useful views when monitoring a job that uses the Conduit Slurm burst buffer plugin:
 
-Use standard Slurm commands:
+1. Slurm job state: whether the job is pending, running, staging out, held, or complete.
+2. Slurm burst buffer state: where the job is in the burst buffer lifecycle.
+3. Conduit transfer state: the status of each Conduit transfer started by the plugin.
+
+### Quick Status Check
+
+Use `squeue` for a compact view of the job state, pending reason, node allocation, and working directory:
 
 ```bash
-# View job status
-squeue -j <job_id>
+squeue -j <job_id> -o "%.18i %.10T %.24r %.30R %.80Z"
+```
 
-# View detailed job information
+Example:
+
+```bash
+[testuser@slurm ~]$ squeue -j 10 -o "%.18i %.10T %.24r %.30R %.80Z"
+JOBID              STATE      REASON                   NODELIST(REASON)               WORK_DIR
+10                 PENDING    BurstBufferStageIn       (BurstBufferStageIn)           /home/testuser
+```
+
+The `REASON` field is especially useful while a job is waiting for stage-in. For example, `BurstBufferStageIn` indicates that Slurm is waiting for the burst buffer plugin to finish staging input data before the job can run.
+
+### Detailed Slurm Job Status
+
+Use `scontrol show job` to see the Slurm job state and burst buffer state together:
+
+```bash
 scontrol show job <job_id>
 ```
 
-### Check Conduit Transfer Status
-
-Query Conduit directly:
+A focused view can be produced with:
 
 ```bash
-# View status via scontrol bbstat
+scontrol show job <job_id> | tr ' ' '\n' | egrep '^(JobId|JobState|Reason|BurstBufferState|WorkDir|Command|StdOut|StdErr|SubmitTime|EligibleTime|StartTime|EndTime|ExitCode)='
+```
+
+Example:
+
+```bash
+[testuser@slurm ~]$ scontrol show job 10 | tr ' ' '\n' | egrep '^(JobId|JobState|Reason|BurstBufferState|WorkDir|Command|ExitCode)='
+JobId=10
+JobState=PENDING
+Reason=BurstBufferStageIn
+BurstBufferState=staging-in
+WorkDir=/home/testuser
+Command=/home/testuser/job.batch
+ExitCode=0:0
+```
+
+### Slurm Burst Buffer Plugin Status
+
+Use `scontrol show burst` to see Slurm's global burst buffer view:
+
+```bash
+scontrol show burst
+```
+
+Depending on the cluster configuration, this may show the loaded burst buffer plugin, configured pools, allocated buffers, and per-user usage.
+
+Example:
+
+```bash
+[root@slurm ~]# scontrol show burst
+Name=lua DefaultPool=(null) Granularity=1 TotalSpace=0 FreeSpace=0 UsedSpace=0
+  Flags=TeardownFailure
+  StageInTimeout=86400 StageOutTimeout=86400 ValidateTimeout=5 OtherTimeout=300
+```
+
+This command is useful for checking whether Slurm has loaded the Lua burst buffer plugin and whether Slurm is tracking any burst buffer resources. It does not show detailed Conduit transfer state for each transfer. Use `scontrol show bbstat conduit <job_id>` for that.
+
+### Conduit Transfer Status Through Slurm
+
+Use `scontrol show bbstat` to query the Conduit plugin status for a specific Slurm job:
+
+```bash
 scontrol show bbstat conduit <job_id>
+```
 
-# Or use conduit CLI directly
-conduit status <transfer_id>
+This calls the plugin's `slurm_bb_get_status` function. The Conduit Slurm plugin returns all Conduit transfers associated with the Slurm job and displays them in a table.
 
-# View specific transfer
+Example:
+
+```bash
+[testuser@slurm ~]$ scontrol show bbstat conduit 10
+TRANSFER_ID                           STATE                     ERROR
+49d1e99a-a72e-413f-877d-64ccbfc917f5  TRANSFER_DATA_TRANSFERRING ERROR_NONE
+069d76c4-989c-4ef5-8722-72ef12d0eaa2  TRANSFER_FINALIZED        ERROR_NONE
+```
+
+After all transfers have completed, the output should show each transfer in `TRANSFER_FINALIZED` with `ERROR_NONE`:
+
+```bash
+[testuser@slurm ~]$ scontrol show bbstat conduit 10
+TRANSFER_ID                           STATE                     ERROR
+c52603c5-aba0-4404-b6a0-d472ad7ea660  TRANSFER_FINALIZED        ERROR_NONE
+69eb3a9c-8a2b-46aa-bca0-56cd2020d0bd  TRANSFER_FINALIZED        ERROR_NONE
+606cdec9-0ffd-49b8-b13d-566b4e609a00  TRANSFER_FINALIZED        ERROR_NONE
+49d1e99a-a72e-413f-877d-64ccbfc917f5  TRANSFER_FINALIZED        ERROR_NONE
+069d76c4-989c-4ef5-8722-72ef12d0eaa2  TRANSFER_FINALIZED        ERROR_NONE
+```
+
+If there are no Conduit transfers associated with the requested job, the command prints:
+
+```text
+No Conduit transfers found for Slurm job <job_id>
+```
+
+The transfer IDs shown in `scontrol show bbstat` output can be used with these CLI commands for more detailed diagnostics.
+
+### Detailed Conduit Diagnostics
+
+The `scontrol show bbstat conduit <job_id>` command is intended to provide a concise transfer summary. For detailed information about a specific transfer, use the Conduit CLI:
+
+```bash
 conduit describe <transfer_id>
 ```
+
+For example:
+
+```bash
+conduit describe 49d1e99a-a72e-413f-877d-64ccbfc917f5
+```
+
+To list transfers associated with a Slurm job directly through Conduit, query by the comment prefix used by the plugin:
+
+```bash
+conduit status 'SLURMJOB:<job_id>,'
+```
+
+Example:
+
+```bash
+conduit status 'SLURMJOB:10,'
+```
+
+The trailing comma is intentional. It prevents matching jobs with similar prefixes, such as matching `SLURMJOB:100` when querying for `SLURMJOB:10`.
 
 ## See Also
 

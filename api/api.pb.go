@@ -1215,7 +1215,7 @@ type TransferDetails struct {
 	DirectoriesTransferred uint32                 `protobuf:"varint,17,opt,name=directoriesTransferred,proto3" json:"directoriesTransferred,omitempty"`          // number of directories transferred
 	SchedulerNodes         *SchedulerNodes        `protobuf:"bytes,18,opt,name=schedulerNodes,proto3" json:"schedulerNodes,omitempty"`                           // struct of the nodes the scheduler used for each stage in the transfer process
 	Active                 bool                   `protobuf:"varint,19,opt,name=active,proto3" json:"active,omitempty"`                                          // whether the transfer is still active or not. This will determine if transfers with conflicting leases should wait
-	Comment                string                 `protobuf:"bytes,20,opt,name=comment,proto3" json:"comment,omitempty"`                                         // comment field. Currently only used by DWS plugin
+	Comment                string                 `protobuf:"bytes,20,opt,name=comment,proto3" json:"comment,omitempty"`                                         // comment field. Currently only used by slurm plugin
 	PausedState            TransferState          `protobuf:"varint,21,opt,name=pausedState,proto3,enum=conduitapi.TransferState" json:"pausedState,omitempty"`  // the state to pause the transfer at (only for test mode)
 	Expiry                 *timestamppb.Timestamp `protobuf:"bytes,22,opt,name=expiry,proto3" json:"expiry,omitempty"`                                           // The expiry time of the current stage of the transfer. Used to detect crashed fta jobs
 	ArchiveState           ArchiveState           `protobuf:"varint,23,opt,name=archiveState,proto3,enum=conduitapi.ArchiveState" json:"archiveState,omitempty"` // The current status of archiving into the SQL database
@@ -1471,7 +1471,7 @@ type TransferRequest struct {
 	Action      Action        `protobuf:"varint,2,opt,name=action,proto3,enum=conduitapi.Action" json:"action,omitempty"`                  // copy or move
 	Source      []string      `protobuf:"bytes,3,rep,name=source,proto3" json:"source,omitempty"`                                          // list of paths of source files/directories
 	Destination string        `protobuf:"bytes,4,opt,name=destination,proto3" json:"destination,omitempty"`                                // path of destination file/directory
-	Comment     string        `protobuf:"bytes,5,opt,name=comment,proto3" json:"comment,omitempty"`                                        // comment field. Currently only used by DWS plugin
+	Comment     string        `protobuf:"bytes,5,opt,name=comment,proto3" json:"comment,omitempty"`                                        // comment field. Currently only used by slurm plugin
 	PausedState TransferState `protobuf:"varint,6,opt,name=pausedState,proto3,enum=conduitapi.TransferState" json:"pausedState,omitempty"` // the state to pause the transfer at (only for test mode)
 }
 

@@ -247,7 +247,7 @@ func generateSerialNumber() (*big.Int, error) {
 	return serialNumber, nil
 }
 
-// GetKeyPairFromFile takes in paths to a cert and key and returns a tls keypair. Used in conduit-cli & dws-plugin
+// GetKeyPairFromFile takes in paths to a cert and key and returns a tls keypair. Used in conduit-cli
 func GetKeyPairFromFile(certPath, keyPath string) (*tls.Certificate, error) {
 	certBytes, err := os.ReadFile(certPath)
 	if err != nil {

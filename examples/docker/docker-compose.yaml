@@ -20,28 +20,37 @@ services:
       conduit:
         ipv4_address: 192.168.20.2
 
-  # this docker container no longer exists on docker hub
-  # ldap:
-  #   image: osixia/openldap:1.5.0
-  #   restart: unless-stopped
-  #   container_name: ldap
-  #   ports:
-  #     - "1389:389"
-  #     - "1636:636"
-  #   environment:
-  #     - LDAP_BASE_DN=dc=example,dc=com
-  #     # - LDAP_CUSTOM_LDIF_DIR=/ldifs
-  #     - LDAP_ADMIN_USERNAME=admin
-  #     - LDAP_ADMIN_PASSWORD=adminpassword
-  #     # - LDAP_USERS=testuser
-  #     # - LDAP_PASSWORDS=password
-  #     # - BITNAMI_DEBUG=true
-  #   networks:
-  #     conduit:
-  #       ipv4_address: 192.168.20.40
-  #   volumes:
-  #     - ./config_files/ldifs:/container/service/slapd/assets/config/bootstrap/ldif/custom
-  #   command: ["--copy-service"]
+  ldap:
+    image: vegardit/openldap:2.6.x
+    restart: unless-stopped
+    container_name: ldap
+    hostname: ldap.example.com
+    ports:
+      - "1389:389"
+    environment:
+      LDAP_INIT_ORG_DN: "dc=example,dc=com"
+      LDAP_INIT_ORG_NAME: "Example"
+      LDAP_INIT_ROOT_USER_DN: "uid=admin,dc=example,dc=com"
+      LDAP_INIT_ROOT_USER_PW: "adminpassword"
+      LDAP_INIT_RFC2307BIS_SCHEMA: "0"
+      LDAP_TLS_ENABLED: "false"
+      LDAP_BACKUP_TIME: ""
+    volumes:
+      - ./config_files/ldifs/testuser.ldif:/opt/ldifs/init_org_entries.ldif:ro
+      - ./config_files/ldifs/conduit-anonymous-acls.ldif:/opt/ldifs/init_mdb_acls.ldif:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "ldapsearch -x -H ldap://localhost:389 -b dc=example,dc=com '(uid=testuser)' uid >/dev/null",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    networks:
+      conduit:
+        ipv4_address: 192.168.20.140
 
   client:
     image: client:latest
@@ -80,7 +89,7 @@ services:
       context: ../../
       dockerfile: docker/Dockerfile.server
       args:
-        - GOVER=1.25
+        - GOVER=1.26
         - ALPINE=3.22
     container_name: conduit-server
     hostname: conduit-server.example.com

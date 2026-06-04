@@ -92,7 +92,7 @@ message TransferDetails {
     uint32 directoriesTransferred = 17;         // number of directories transferred
     SchedulerNodes schedulerNodes = 18;         // struct of the nodes the scheduler used for each stage in the transfer process
     bool active = 19;                           // whether the transfer is still active or not. This will determine if transfers with conflicting leases should wait
-    string comment = 20;                        // comment field. Currently only used by DWS plugin
+    string comment = 20;                        // comment field. Currently only used by slurm plugin
     TransferState pausedState = 21;             // the state to pause the transfer at (only for test mode)
     google.protobuf.Timestamp expiry = 22;      // The expiry time of the current stage of the transfer. Used to detect crashed fta jobs
     ArchiveState archiveState = 23;             // The current status of archiving into the SQL database
@@ -109,7 +109,7 @@ message TransferRequest {
     Action action = 2;              // copy or move
     repeated string source = 3;     // list of paths of source files/directories
     string destination = 4;         // path of destination file/directory
-    string comment = 5;             // comment field. Currently only used by DWS plugin
+    string comment = 5;             // comment field. Currently only used by slurm plugin
     TransferState pausedState = 6;  // the state to pause the transfer at (only for test mode)
 }
 

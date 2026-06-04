@@ -131,7 +131,6 @@ func StartPluginETCD(log *logger.ConduitLogger, c proto.SchedulerCommand, it pro
 
 	txnCompare = append(txnCompare, clientv3.Compare(clientv3.Value(etcdErrorKey), "=", proto.Error_ERROR_NONE.String()))
 	txnCompare = append(txnCompare, clientv3.Compare(clientv3.Value(etcdStateKey), "=", submittedState.String()))
-	// txnCompare = append(txnCompare, clientv3.Compare(clientv3.Value(it.ETCDSlurmJobIDsKey(c)), "=", jobID))
 
 	txnActions = append(txnActions, clientv3.OpPut(etcdStateKey, runningState.String()))
 	txnActions = append(txnActions, clientv3.OpPut(it.ETCDSchedulerNodesKey(c), nodeList))

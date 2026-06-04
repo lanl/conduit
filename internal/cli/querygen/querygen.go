@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"regexp"
 
-	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/internal/cli/processing"
 )
 
@@ -18,8 +17,8 @@ const (
 	TypeUnknown StrType = iota
 	TypeTimestamp
 	TypeTransferID
-	TypeSlurmJobID
 	TypeSlurmJobIDComment
+	TypeSlurmJobIDCommentGeneric
 	TypePath
 	TypeComment
 )
@@ -30,24 +29,18 @@ var queryAttributes = map[string]string{
 	"destination": "Destination",
 	"endTime":     "EndTime",
 	"expiry":      "Expiry",
-	// "slurmjobids":      "SlurmJobIDs",
-	"slurm_validation": "SlurmJobIDs." + toCapitalize(proto.SchedulerCommand_VALIDATION.String()),
-	"slurm_setup":      "SlurmJobIDs." + toCapitalize(proto.SchedulerCommand_SETUP.String()),
-	"slurm_transfer":   "SlurmJobIDs." + toCapitalize(proto.SchedulerCommand_TRANSFER.String()),
-	"slurm_teardown":   "SlurmJobIDs." + toCapitalize(proto.SchedulerCommand_TEARDOWN.String()),
-	"source":           "Source",
-	"startTime":        "StartTime",
-	"state":            "State",
-	"transferID":       "TransferID",
-	"user":             "User",
-	"comment":          "Comment",
+	"source":      "Source",
+	"startTime":   "StartTime",
+	"state":       "State",
+	"transferID":  "TransferID",
+	"user":        "User",
+	"comment":     "Comment",
 }
 
 var customStrTypeRegex = map[StrType]string{
-	// TypeSlurmJobIDComment: `^(?:[a-zA-Z])*%v(?:[a-zA-Z])*-`,
-	TypeSlurmJobIDComment: `^SLURMJOB:%v,`,
-	TypeSlurmJobID:        `^%v$`,
-	TypeComment:           `^%v$`,
+	TypeSlurmJobIDCommentGeneric: `^SLURMJOB:%v,`,
+	TypeSlurmJobIDComment:        `^%v`,
+	TypeComment:                  `^%v$`,
 }
 
 // Map association between StrType and printable string
@@ -111,8 +104,13 @@ var regexTransferID = []string{
 }
 
 // Regex string list for SlurmJobID
-var regexSlurmJobID = []string{
+var regexSlurmJobIDGeneric = []string{
 	"^[0-9]+$",
+}
+
+// Regex string list for SlurmJobID
+var regexSlurmJobID = []string{
+	"^SLURMJOB:[0-9]+,$",
 }
 
 // Regex string list for path (POSIX)
@@ -128,12 +126,12 @@ var regexComment = []string{
 
 // Map of type to slice of regex strings
 var regexStrings = map[StrType][]string{
-	TypeTransferID:        regexTransferID,
-	TypeTimestamp:         regexTimestamp,
-	TypeSlurmJobID:        regexSlurmJobID,
-	TypePath:              regexPath,
-	TypeSlurmJobIDComment: regexSlurmJobID,
-	TypeComment:           regexComment,
+	TypeTransferID:               regexTransferID,
+	TypeTimestamp:                regexTimestamp,
+	TypePath:                     regexPath,
+	TypeSlurmJobIDCommentGeneric: regexSlurmJobIDGeneric,
+	TypeSlurmJobIDComment:        regexSlurmJobID,
+	TypeComment:                  regexComment,
 }
 
 // String list of transfer attributes associated with Timestamp
@@ -147,15 +145,6 @@ var queryTimestamp = []string{
 // String list of transfer attributes associated with TransferID
 var queryTransferID = []string{
 	queryAttributes["transferID"],
-}
-
-// String list of transfer attributes associated with SlurmJobID
-var querySlurmJobID = []string{
-	// queryAttributes["slurmjobids"],
-	queryAttributes["slurm_validation"],
-	queryAttributes["slurm_setup"],
-	queryAttributes["slurm_transfer"],
-	queryAttributes["slurm_teardown"],
 }
 
 // String list of transfer attributes associated with Path
@@ -172,12 +161,12 @@ var queryComment = []string{
 // Map of type to slice of query strings representing attributes to search
 // in transfer
 var queryStrings = map[StrType][]string{
-	TypeTimestamp:         queryTimestamp,
-	TypeTransferID:        queryTransferID,
-	TypeSlurmJobID:        querySlurmJobID,
-	TypePath:              queryPath,
-	TypeSlurmJobIDComment: queryComment,
-	TypeComment:           queryComment,
+	TypeTimestamp:                queryTimestamp,
+	TypeTransferID:               queryTransferID,
+	TypePath:                     queryPath,
+	TypeSlurmJobIDCommentGeneric: queryComment,
+	TypeSlurmJobIDComment:        queryComment,
+	TypeComment:                  queryComment,
 }
 
 // Function to return detected type from string

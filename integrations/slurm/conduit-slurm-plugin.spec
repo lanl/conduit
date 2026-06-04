@@ -27,13 +27,13 @@ and the Lua plugin script itself at /etc/conduit/burst_buffer.lua.
 :
 
 %install
-# Install backend binary into /usr/bin
+# Install conduit cli binary
 install -Dpm 0755 conduit %{buildroot}%{_sbindir}/conduit
 
-# Install Lua plugin as configuration file for slurm
+# Install Lua plugin
 install -Dpm 0644 burst_buffer.lua %{buildroot}%{_sysconfdir}/conduit/burst_buffer.lua
 
-# Install Lua plugin as configuration file for slurm
+# Install lua plugin config
 install -Dpm 0644 burst_buffer.conf %{buildroot}%{_sysconfdir}/conduit/burst_buffer.conf
 
 %files

@@ -119,13 +119,13 @@ chown 1000:1000 -R \
 	"${CONDUIT_PATH}"/keys/rqlite-server-key.pem \
 	"${CONDUIT_PATH}"/keys/rqlite-server-key.pem \
 
-echo external-client-cert-dws:
+echo external-client-cert-slurm:
 ../../bin/conduit-server external-client-cert -d \
     --separate-cert-key \
-    --cert-name conduit_dws_cert.pem \
-    --key-name conduit_dws_key.pem \
+    --cert-name conduit-slurm-cert.pem \
+    --key-name conduit-slurm-key.pem \
     --output $CONDUIT_PATH/keys/ \
-    --client-commonname conduit-dws \
+    --client-commonname conduit-service \
     --expiration 365
 
 echo external-client-cert-admin:

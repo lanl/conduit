@@ -52,15 +52,19 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 
 	args := src
 	args = append(args, dst)
-	// args = append(args, "-v")
-	// args = append(args, "-P")
 
-	args = append(args, "--info=progress2")
-	args = append(args, "--info=name0")
-	args = append(args, "--stats")
+	args = append(args, "--info=progress2") // outputs statistics based on the whole transfer, rather than individual files.
+	args = append(args, "--info=name0")     // see how the transfer is doing without scrolling the screen with a lot of names.
+	args = append(args, "--stats")          // This tells rsync to print a verbose set of statistics on the file transfer.
+	args = append(args, "--links")          // When symlinks are encountered, recreate the symlink on the destination.
+	args = append(args, "--perms")          // set the destination permissions to be the same as the source permissions.
+	args = append(args, "--times")          // preserve modification times
+	args = append(args, "--group")          // preserve group
+	args = append(args, "--owner")          // preserve owner
+	args = append(args, "--specials")       // preserve special files
 
 	if action == proto.Action_RECURSIVE_COPY || action == proto.Action_RECURSIVE_MOVE {
-		args = append(args, "-r")
+		args = append(args, "--recursive")
 	}
 
 	argTest := strings.Join(args, " ")

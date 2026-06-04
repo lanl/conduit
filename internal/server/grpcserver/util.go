@@ -361,7 +361,7 @@ func (s *ConduitServer) getUserFromRequest(ctx context.Context, requestedUser *s
 					// ldap was not configured. Try looking up user directly on the machine
 					u, err := user.LookupId(*requestedUser)
 					if err != nil {
-						return "", reqPrivLevel, fmt.Errorf("%v provided a uid %v in request, but couldn't find user", commonName, *requestedUser)
+						return "", reqPrivLevel, fmt.Errorf("%v provided a uid %v in request, but couldn't find user: %v", commonName, *requestedUser, err)
 					} else {
 						if u.Uid == "0" {
 							return "", reqPrivLevel, fmt.Errorf("user root is not allowed to use conduit")

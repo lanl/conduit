@@ -1,5 +1,5 @@
 ### Build Arguments (override via "--build-arg")
-ARG GOVER="1.25"
+ARG GOVER="1.26"
 
 FROM conduit-cli:latest AS conduit-cli
 
