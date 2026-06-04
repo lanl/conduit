@@ -1246,6 +1246,19 @@ local function format_bbstat_rows(status)
 	return table.concat(lines, "\n")
 end
 
+local function ensure_trailing_newline(s)
+	if type(s) ~= "string" then
+		s = tostring(s)
+	end
+
+	if s == "" or s:sub(-1) ~= "\n" then
+		return s .. "\n"
+	end
+
+	return s
+end
+
+
 --[[
 --slurm_bb_get_status
 --
@@ -1270,17 +1283,21 @@ function slurm_bb_get_status(uid, gid, ...)
 	local args = { ... }
 	local argc = select("#", ...)
 
+	local function finish(msg)
+		return slurm.SUCCESS, ensure_trailing_newline(msg)
+	end
+
 	if argc ~= 2 or args[1] ~= "conduit" then
 		local msg = "Usage: conduit <slurm-job-id>"
 		slurm.log_debug("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
-		return slurm.SUCCESS, msg
+		return finish(msg)
 	end
 
 	local jid = args[2]
 	if string.find(jid, "^%d+$") == nil then
 		local msg = "A job ID must contain only digits."
 		slurm.log_debug("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
-		return slurm.SUCCESS, msg
+		return finish(msg)
 	end
 
 	local cmd, cmd_args = SlurmIDStateCmd(jid, uid)
@@ -1291,24 +1308,24 @@ function slurm_bb_get_status(uid, gid, ...)
 	if type(status) ~= "string" then
 		local msg = "failed to run status command: received invalid output: " .. tostring(status)
 		slurm.log_error("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
-		return slurm.SUCCESS, msg
+		return finish(msg)
 	end
 
 	local compact = status:gsub("%s", "")
 	if done == true then
 		if compact == "" or compact == "[]" then
-			return slurm.SUCCESS, "No Conduit transfers found for Slurm job " .. jid
+			return finish("No Conduit transfers found for Slurm job " .. jid)
 		end
 
 		local formatted, format_err = format_bbstat_rows(status)
 		if formatted ~= nil then
-			return slurm.SUCCESS, formatted
+			return finish(formatted)
 		end
 
 		slurm.log_error("%s: slurm_bb_get_status(%s): failed to format status output: %s",
 			lua_script_name, table.concat(args, ", "), tostring(format_err))
 
-		return slurm.SUCCESS, status
+		return finish(status)
 	end
 
 	local msg = string.format(
@@ -1321,5 +1338,5 @@ function slurm_bb_get_status(uid, gid, ...)
 	slurm.log_error("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
 
 	-- Status command only: return SUCCESS so scontrol prints the useful message.
-	return slurm.SUCCESS, msg
+	return finish(msg)
 end
