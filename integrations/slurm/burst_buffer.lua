@@ -248,19 +248,22 @@ local function SlurmJobCommentPrefix(slurmJobID)
 	return COMMENT_JOB .. tostring(slurmJobID) .. ","
 end
 
+local BBSTAT_MAX_TRANSFERS = 100
+
 local function SlurmIDStateCmd(slurmJobID, uid)
 	local query = SlurmJobCommentPrefix(slurmJobID)
 
-	-- Include comment so bbstat output can distinguish PRE/POST and directive index.
-	local jsonpath = "$..[comment,transferID,state,active,error,errorMessage]"
+	local jsonpath = '$..["transferID","state","error"]'
 
 	local final_args = {}
 
 	table.insert(final_args, "describe")
 	table.insert(final_args, "--quiet")
 
-	-- Query Conduit by the comment prefix, not by bare Slurm job id.
 	table.insert(final_args, query)
+
+	table.insert(final_args, "-n")
+	table.insert(final_args, tostring(BBSTAT_MAX_TRANSFERS))
 
 	table.insert(final_args, "--jsonpath")
 	table.insert(final_args, jsonpath)
@@ -392,6 +395,8 @@ local RESERVED_USER_FLAGS = {
 	["--skip-stat"] = true,
 	["--validate-only"] = true,
 	["--watch"] = true,
+	["--debug"] = true,
+	["-d"] = true,
 }
 
 local function option_name(tok)
@@ -1107,6 +1112,140 @@ function slurm_bb_test_data_out(job_id, job_script, uid, gid, job_info)
 	return slurm.SUCCESS, ""
 end
 
+local function parse_json_string_array(s)
+	if type(s) ~= "string" then
+		return nil, "input must be a string"
+	end
+
+	local values = {}
+	local i = 1
+	local n = #s
+
+	local function skip_ws()
+		while i <= n and s:sub(i, i):match("%s") do
+			i = i + 1
+		end
+	end
+
+	skip_ws()
+
+	if s:sub(i, i) ~= "[" then
+		return nil, "expected JSON array"
+	end
+	i = i + 1
+
+	skip_ws()
+
+	if s:sub(i, i) == "]" then
+		return values, ""
+	end
+
+	while i <= n do
+		skip_ws()
+
+		if s:sub(i, i) ~= '"' then
+			return nil, "expected JSON string at byte " .. tostring(i)
+		end
+		i = i + 1
+
+		local out = {}
+		local closed = false
+
+		while i <= n do
+			local c = s:sub(i, i)
+			i = i + 1
+
+			if c == '"' then
+				closed = true
+				break
+			elseif c == "\\" then
+				if i > n then
+					return nil, "unterminated JSON escape"
+				end
+
+				local e = s:sub(i, i)
+				i = i + 1
+
+				if e == '"' or e == "\\" or e == "/" then
+					out[#out + 1] = e
+				elseif e == "n" then
+					out[#out + 1] = "\n"
+				elseif e == "r" then
+					out[#out + 1] = "\r"
+				elseif e == "t" then
+					out[#out + 1] = "\t"
+				elseif e == "u" then
+					local hex = s:sub(i, i + 3)
+					if not hex:match("^%x%x%x%x$") then
+						return nil, "invalid unicode escape"
+					end
+					-- Preserve unicode escapes as-is. Not needed for transferID/state/error.
+					out[#out + 1] = "\\u" .. hex
+					i = i + 4
+				else
+					return nil, "invalid JSON escape: \\" .. e
+				end
+			else
+				out[#out + 1] = c
+			end
+		end
+
+		if not closed then
+			return nil, "unterminated JSON string"
+		end
+
+		values[#values + 1] = table.concat(out)
+
+		skip_ws()
+
+		local sep = s:sub(i, i)
+		if sep == "," then
+			i = i + 1
+		elseif sep == "]" then
+			i = i + 1
+			return values, ""
+		else
+			return nil, "expected ',' or ']' at byte " .. tostring(i)
+		end
+	end
+
+	return nil, "unterminated JSON array"
+end
+
+local function format_bbstat_rows(status)
+	local values, err = parse_json_string_array(status)
+	if values == nil then
+		return nil, err
+	end
+
+	if #values == 0 then
+		return "No matching Conduit transfers found"
+	end
+
+	local fields_per_row = 3
+	if (#values % fields_per_row) ~= 0 then
+		return nil, "expected transfer status fields in groups of 3, received " .. tostring(#values)
+	end
+
+	local lines = {}
+	lines[#lines + 1] = string.format("%-36s  %-24s  %s", "TRANSFER_ID", "STATE", "ERROR")
+
+	for i = 1, #values, fields_per_row do
+		local transfer_id = values[i] or ""
+		local state = values[i + 1] or ""
+		local transfer_error = values[i + 2] or ""
+
+		lines[#lines + 1] = string.format(
+			"%-36s  %-24s  %s",
+			transfer_id,
+			state,
+			transfer_error
+		)
+	end
+
+	return table.concat(lines, "\n")
+end
+
 --[[
 --slurm_bb_get_status
 --
@@ -1160,6 +1299,14 @@ function slurm_bb_get_status(uid, gid, ...)
 		if compact == "" or compact == "[]" then
 			return slurm.SUCCESS, "No Conduit transfers found for Slurm job " .. jid
 		end
+
+		local formatted, format_err = format_bbstat_rows(status)
+		if formatted ~= nil then
+			return slurm.SUCCESS, formatted
+		end
+
+		slurm.log_error("%s: slurm_bb_get_status(%s): failed to format status output: %s",
+			lua_script_name, table.concat(args, ", "), tostring(format_err))
 
 		return slurm.SUCCESS, status
 	end
