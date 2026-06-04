@@ -244,15 +244,23 @@ function CONDUIT_JOB:getTransferIDFromConduit()
 	return transferID, ""
 end
 
-function SlurmIDStateCmd(slurmJobID, uid)
-	local jsonpath = "$..[transferID,state]"
+local function SlurmJobCommentPrefix(slurmJobID)
+	return COMMENT_JOB .. tostring(slurmJobID) .. ","
+end
+
+local function SlurmIDStateCmd(slurmJobID, uid)
+	local query = SlurmJobCommentPrefix(slurmJobID)
+
+	-- Include comment so bbstat output can distinguish PRE/POST and directive index.
+	local jsonpath = "$..[comment,transferID,state,active,error,errorMessage]"
 
 	local final_args = {}
 
 	table.insert(final_args, "describe")
 	table.insert(final_args, "--quiet")
 
-	table.insert(final_args, tostring(slurmJobID))
+	-- Query Conduit by the comment prefix, not by bare Slurm job id.
+	table.insert(final_args, query)
 
 	table.insert(final_args, "--jsonpath")
 	table.insert(final_args, jsonpath)
@@ -260,7 +268,6 @@ function SlurmIDStateCmd(slurmJobID, uid)
 	table.insert(final_args, "--user")
 	table.insert(final_args, tostring(uid))
 
-	-- add static flags to the end of final_args
 	for i = 1, #STATIC_FLAGS do
 		final_args[#final_args + 1] = STATIC_FLAGS[i]
 	end
@@ -1138,9 +1145,22 @@ function slurm_bb_get_status(uid, gid, ...)
 	end
 
 	local cmd, cmd_args = SlurmIDStateCmd(jid, uid)
+	slurm.log_debug("cmd: %s %s", cmd, table.concat(cmd_args, " "))
+
 	local done, status = exec_cmd(cmd, cmd_args)
 
+	if type(status) ~= "string" then
+		local msg = "failed to run status command: received invalid output: " .. tostring(status)
+		slurm.log_error("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
+		return slurm.SUCCESS, msg
+	end
+
+	local compact = status:gsub("%s", "")
 	if done == true then
+		if compact == "" or compact == "[]" then
+			return slurm.SUCCESS, "No Conduit transfers found for Slurm job " .. jid
+		end
+
 		return slurm.SUCCESS, status
 	end
 
@@ -1148,10 +1168,11 @@ function slurm_bb_get_status(uid, gid, ...)
 		"failed to run status command: %s %s: %s",
 		cmd,
 		table.concat(cmd_args, " "),
-		tostring(status)
+		status
 	)
 
 	slurm.log_error("%s: slurm_bb_get_status(%s): %s", lua_script_name, table.concat(args, ", "), msg)
 
-	return slurm.ERROR, msg
+	-- Status command only: return SUCCESS so scontrol prints the useful message.
+	return slurm.SUCCESS, msg
 end
