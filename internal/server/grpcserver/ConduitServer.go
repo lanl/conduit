@@ -43,7 +43,7 @@ import (
 )
 
 var (
-	privilegedServices = []string{"conduit-slurm", "conduit-service"}
+	privilegedServices = []string{"conduit-service"}
 	privilegedAdmins   = []string{"conduit-admin"}
 	queryFields        = []string{}
 	adminWarning       = "This transfer has been manipulated by an admin"

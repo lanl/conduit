@@ -125,7 +125,7 @@ echo external-client-cert-slurm:
     --cert-name conduit-slurm-cert.pem \
     --key-name conduit-slurm-key.pem \
     --output $CONDUIT_PATH/keys/ \
-    --client-commonname conduit-slurm \
+    --client-commonname conduit-service \
     --expiration 365
 
 echo external-client-cert-admin:
