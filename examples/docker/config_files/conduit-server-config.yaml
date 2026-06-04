@@ -16,18 +16,15 @@ etcd:
   - hostname: etcd-3.example.com
     ip: 192.168.20.23
     port: 2379
-# ldap:
-#   host: 192.168.20.40
-#   port: 1389
-#   base-dn:
-#     - "dc=example,dc=com"
-#   krb5-Attributes:
-#     - "l"
-#     - "hpcKerbPrincipals"
-#   uname-Attributes:
-#     - "uid"
-#   uid-Number-Attributes:
-#     - "uidNumber"
+ldap:
+  host: 192.168.20.140
+  port: 389
+  base-dn:
+    - "dc=example,dc=com"
+  uname-attributes:
+    - "uid"
+  uid-number-attributes:
+    - "uidNumber"
 node-allocations:
   validation:
     nodes: 1
