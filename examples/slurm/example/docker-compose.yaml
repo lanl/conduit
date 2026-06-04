@@ -1,0 +1,92 @@
+services:
+  slurmctld:
+    image: slurm-docker-slurmctld:25.11.5
+    build:
+      context: .
+      dockerfile: Dockerfile.slurm
+      args:
+        - SLURM_VER=25.11.5
+    container_name: slurmctld
+    hostname: slurm.example.com
+    restart: unless-stopped
+    privileged: true
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./hosts:/etc/hosts:ro
+      - /etc/slurm_docker/munge:/etc/munge:ro
+      - ./slurm.conf:/tmp/slurm.conf
+      - /etc/conduit/keys/conduit-slurm-cert.pem:/etc/conduit/conduit-slurm-cert.pem:ro
+      - /etc/conduit/keys/conduit-slurm-key.pem:/etc/conduit/conduit-slurm-key.pem:ro
+      - /etc/conduit/keys/conduit-external-ca.pem:/etc/conduit/conduit-external-ca.pem:ro
+      - ./conduit-cli-config.yaml:/etc/conduit/conduit-cli-config.yaml:ro
+      - ./job.batch:/home/testuser/job.batch
+      - ../../../integrations/slurm/burst_buffer.lua:/usr/local/etc/burst_buffer.lua:ro
+      - ../../../integrations/slurm/burst_buffer.conf:/usr/local/etc/burst_buffer.conf:ro
+    networks:
+      docker_conduit:
+        ipv4_address: 192.168.20.150
+      slurm:
+        ipv4_address: 192.168.22.5
+
+  node1:
+    image: slurm-docker-slurmd:25.11.5
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+      args:
+        - SLURM_VER=25.11.5
+    container_name: node1
+    hostname: node1.example.com
+    depends_on:
+      - slurmctld
+    restart: unless-stopped
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+    ulimits:
+      stack: -1
+    shm_size: "1gb"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./hosts:/etc/hosts:ro
+      - /etc/slurm_docker/munge:/etc/munge:ro
+      - ./slurm.conf:/tmp/slurm.conf
+      - /etc/slurm_docker/ssh/testuser:/home/testuser/.ssh:ro
+    networks:
+      slurm:
+        ipv4_address: 192.168.22.6
+
+  node2:
+    image: slurm-docker-slurmd:25.11.5
+    container_name: node2
+    hostname: node2.example.com
+    depends_on:
+      - slurmctld
+    restart: unless-stopped
+    privileged: true
+    cap_add:
+      - SYS_ADMIN
+    ulimits:
+      stack: -1
+    shm_size: "1gb"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - ./hosts:/etc/hosts:ro
+      - /etc/slurm_docker/munge:/etc/munge:ro
+      - ./slurm.conf:/tmp/slurm.conf
+      - /etc/slurm_docker/ssh/testuser:/home/testuser/.ssh:ro
+    networks:
+      slurm:
+        ipv4_address: 192.168.22.7
+
+networks:
+  # docker_conduit:
+  #   external: true
+  slurm:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.22.0/24
+  docker_conduit:
+    external: true

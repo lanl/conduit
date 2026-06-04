@@ -1,0 +1,28 @@
+FROM rockylinux:8
+
+ARG MUNGE_VER
+ARG BUILD_OPTIONS
+
+RUN groupadd --gid 994 munge \
+    && adduser -u 994 -g 994 munge \
+    && dnf install -y epel-release \
+    && dnf install -y make wget sudo xz gcc libgcrypt libgcrypt-devel openssl openssl-devel bzip2 zlib pkgconf pkg-config \ 
+    && wget https://github.com/dun/munge/releases/download/munge-${MUNGE_VER}/munge-${MUNGE_VER}.tar.xz
+
+RUN tar xJf munge-${MUNGE_VER}.tar.xz \
+    && cd munge-${MUNGE_VER} \
+    && ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --localstatedir=/var \
+        --runstatedir=/run \
+        --libdir=/lib64 \
+        ${BUILD_OPTIONS} \
+    && make \
+    && make install
+
+RUN mkdir -p /run/munge/ \
+    && chown munge:munge /run/munge/ \
+    && mkdir -p /var/lib/munge \
+    && chown munge:munge /var/lib/munge \
+    && chown munge:munge /var/log/munge

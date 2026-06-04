@@ -1,0 +1,44 @@
+ARG MUNGE_VER="latest"
+ARG SLURM_VER="24.05.8"
+
+FROM munge-build:${MUNGE_VER} AS munge
+
+FROM slurm-build:${SLURM_VER}
+
+RUN groupadd --gid 994 munge \
+    && adduser -u 994 -g 994 munge \
+    && mkdir -p /run/munge/ \
+    && chown munge:munge /run/munge/ \
+    && mkdir -p /var/lib/munge \
+    && chown munge:munge /var/lib/munge \
+    && mkdir /var/log/munge \
+    && chown munge:munge /var/log/munge
+
+COPY --from=munge /usr/sbin/munged /usr/sbin/
+COPY --from=munge /usr/sbin/mungekey /usr/sbin/
+COPY --from=munge /usr/bin/munge /usr/bin/
+COPY --from=munge /usr/bin/remunge /usr/bin/
+COPY --from=munge /usr/bin/unmunge /usr/bin/
+
+ENV SLURMRESTD_LISTEN=0.0.0.0:5642
+ENV SLURM_JWT=1
+
+RUN groupadd --gid 1432 slurm \
+    && adduser -u 1432 -g 1432 slurm \ 
+    && groupadd --gid 1434 slurmrest \
+    && adduser -u 1434 -g 1434 slurmrest \
+    && mkdir -p /etc/slurm \
+    && chown slurm:slurm /etc/slurm \
+    && mkdir -p /etc/slurm/logs \
+    && ln -s /usr/local/etc/slurm.conf /etc/slurm/slurm.conf \
+    && ln -s /usr/local/etc/slurmdbd.conf /etc/slurm/slurmdbd.conf \
+    && mkdir -p /var/spool/slurmctld \
+    && chown -R slurm:slurm /var/spool/slurmctld \
+    && touch /var/log/slurmctld.log \
+    && chown slurm:slurm /var/log/slurmctld.log \
+    && chmod 0600 /var/log/slurmctld.log
+
+COPY cgroup.conf /usr/local/etc/
+COPY slurmrestd-entrypoint.sh /etc/slurm/
+
+ENTRYPOINT ["/etc/slurm/slurmrestd-entrypoint.sh"]

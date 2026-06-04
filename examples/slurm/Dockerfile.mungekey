@@ -1,0 +1,5 @@
+ARG MUNGE_VER="latest"
+
+FROM munge-build:${MUNGE_VER}
+
+ENTRYPOINT [ "/usr/sbin/mungekey" ]

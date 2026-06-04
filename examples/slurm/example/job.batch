@@ -1,0 +1,9 @@
+#!/bin/sh
+
+##CONDUIT_PRE cp [flags] <source...> <dest>
+##CONDUIT_POST mv [flags] <source...> <dest>
+
+#CONDUIT_PRE cp /mnt/fs_1/foo/hello.txt /mnt/fs_2/bar/
+#CONDUIT_POST mv -r /mnt/fs_2/bar/hello.txt /mnt/fs_1/foo/goodbye.txt
+
+echo helloworld

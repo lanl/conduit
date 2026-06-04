@@ -1,0 +1,36 @@
+ARG MUNGE_VER="latest"
+FROM munge-build:${MUNGE_VER} AS munge
+
+FROM rockylinux:8
+COPY --from=munge /usr/lib64/libmunge.so /usr/lib64/
+COPY --from=munge /usr/lib64/libmunge.a /usr/lib64/
+COPY --from=munge /usr/lib64/libmunge.la /usr/lib64/
+COPY --from=munge /usr/include/munge.h /usr/include/
+
+ARG SLURM_VER="24.05.8"
+ARG SLURM_BUILD_ARGS="--enable-debug --with-jwt=/usr"
+
+RUN dnf install -y dnf-plugins-core \
+    && dnf install -y epel-release \
+    && dnf config-manager --set-enabled powertools \
+    && dnf -y update
+
+RUN dnf install -y rpm-build gcc openssl openssl-devel pam-devel numactl numactl-devel hwloc hwloc-devel lua lua-devel readline-devel rrdtool-devel ncurses-devel gtk2-devel libibmad libibumad perl-Switch perl-ExtUtils-MakeMaker xorg-x11-xauth make \
+    dbus-devel kernel-headers \
+    libssh2-devel man2html \
+    http-parser-devel json-c-devel \
+    libjwt libjwt-devel \
+    mariadb-server mariadb-devel \
+    python3 \
+    wget vim git bash sudo
+
+RUN wget https://download.schedmd.com/slurm/slurm-${SLURM_VER}.tar.bz2
+
+COPY cgroup.conf /usr/local/etc/
+# COPY mypatch.patch /etc/slurm/
+
+RUN tar -xaf slurm-${SLURM_VER}.tar.bz2 \
+    && cd  slurm-${SLURM_VER} \
+    # && git apply /etc/slurm/mypatch.patch \
+    && ./configure  ${SLURM_BUILD_ARGS} \
+    && make install
