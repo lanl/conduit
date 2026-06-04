@@ -18,6 +18,7 @@ const (
 	TypeTimestamp
 	TypeTransferID
 	TypeSlurmJobIDComment
+	TypeSlurmJobIDCommentGeneric
 	TypePath
 	TypeComment
 )
@@ -37,8 +38,9 @@ var queryAttributes = map[string]string{
 }
 
 var customStrTypeRegex = map[StrType]string{
-	TypeSlurmJobIDComment: `^SLURMJOB:%v,`,
-	TypeComment:           `^%v$`,
+	TypeSlurmJobIDCommentGeneric: `^SLURMJOB:%v,`,
+	TypeSlurmJobIDComment:        `^%v`,
+	TypeComment:                  `^%v$`,
 }
 
 // Map association between StrType and printable string
@@ -102,8 +104,13 @@ var regexTransferID = []string{
 }
 
 // Regex string list for SlurmJobID
-var regexSlurmJobID = []string{
+var regexSlurmJobIDGeneric = []string{
 	"^[0-9]+$",
+}
+
+// Regex string list for SlurmJobID
+var regexSlurmJobID = []string{
+	"^SLURMJOB:[0-9]+,$",
 }
 
 // Regex string list for path (POSIX)
@@ -115,16 +122,16 @@ var regexPath = []string{
 var regexComment = []string{
 	"^[0-9]+$",
 	"^SLURMJOB:[0-9]+,SLURMINDEX:[0-9]+,SLURMTYPE:(?:CONDUIT_PRE|CONDUIT_POST)$",
-	"^SLURMJOB:[0-9]+,$",
 }
 
 // Map of type to slice of regex strings
 var regexStrings = map[StrType][]string{
-	TypeTransferID:        regexTransferID,
-	TypeTimestamp:         regexTimestamp,
-	TypePath:              regexPath,
-	TypeSlurmJobIDComment: regexSlurmJobID,
-	TypeComment:           regexComment,
+	TypeTransferID:               regexTransferID,
+	TypeTimestamp:                regexTimestamp,
+	TypePath:                     regexPath,
+	TypeSlurmJobIDCommentGeneric: regexSlurmJobIDGeneric,
+	TypeSlurmJobIDComment:        regexSlurmJobID,
+	TypeComment:                  regexComment,
 }
 
 // String list of transfer attributes associated with Timestamp
@@ -154,11 +161,12 @@ var queryComment = []string{
 // Map of type to slice of query strings representing attributes to search
 // in transfer
 var queryStrings = map[StrType][]string{
-	TypeTimestamp:         queryTimestamp,
-	TypeTransferID:        queryTransferID,
-	TypePath:              queryPath,
-	TypeSlurmJobIDComment: queryComment,
-	TypeComment:           queryComment,
+	TypeTimestamp:                queryTimestamp,
+	TypeTransferID:               queryTransferID,
+	TypePath:                     queryPath,
+	TypeSlurmJobIDCommentGeneric: queryComment,
+	TypeSlurmJobIDComment:        queryComment,
+	TypeComment:                  queryComment,
 }
 
 // Function to return detected type from string
