@@ -40,8 +40,6 @@ func ListenForKill(it proto.IncompleteTransfer, em *etcd.ETCDManager, sc proto.S
 	txnActions = append(txnActions, clientv3.OpPut(it.ETCDErrorKey(), proto.Error_ERROR_SCHEDULER.String()))
 	txnActions = append(txnActions, clientv3.OpPut(it.ETCDErrorMessageKey(), "received SIGTERM signal"))
 
-	// txnCompare = append(txnCompare, clientv3.Compare(clientv3.Value(it.ETCDSlurmJobIDsKey(sc)), "=", jobID))
-
 	retryCount := viper.GetInt(defaults.ConfigFTAVerifyRetryCountKey)
 	sleepDur := viper.GetDuration(defaults.ConfigFTAVerifySleepDurationKey)
 	resp, err := em.RetryTxn(&txnCompare, &txnActions, retryCount, sleepDur)

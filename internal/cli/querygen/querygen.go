@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"regexp"
 
-	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/internal/cli/processing"
 )
 
@@ -18,7 +17,6 @@ const (
 	TypeUnknown StrType = iota
 	TypeTimestamp
 	TypeTransferID
-	TypeSlurmJobID
 	TypeSlurmJobIDComment
 	TypePath
 	TypeComment
@@ -30,23 +28,16 @@ var queryAttributes = map[string]string{
 	"destination": "Destination",
 	"endTime":     "EndTime",
 	"expiry":      "Expiry",
-	// "slurmjobids":      "SlurmJobIDs",
-	"slurm_validation": "SlurmJobIDs." + toCapitalize(proto.SchedulerCommand_VALIDATION.String()),
-	"slurm_setup":      "SlurmJobIDs." + toCapitalize(proto.SchedulerCommand_SETUP.String()),
-	"slurm_transfer":   "SlurmJobIDs." + toCapitalize(proto.SchedulerCommand_TRANSFER.String()),
-	"slurm_teardown":   "SlurmJobIDs." + toCapitalize(proto.SchedulerCommand_TEARDOWN.String()),
-	"source":           "Source",
-	"startTime":        "StartTime",
-	"state":            "State",
-	"transferID":       "TransferID",
-	"user":             "User",
-	"comment":          "Comment",
+	"source":      "Source",
+	"startTime":   "StartTime",
+	"state":       "State",
+	"transferID":  "TransferID",
+	"user":        "User",
+	"comment":     "Comment",
 }
 
 var customStrTypeRegex = map[StrType]string{
-	// TypeSlurmJobIDComment: `^(?:[a-zA-Z])*%v(?:[a-zA-Z])*-`,
 	TypeSlurmJobIDComment: `^SLURMJOB:%v,`,
-	TypeSlurmJobID:        `^%v$`,
 	TypeComment:           `^%v$`,
 }
 
@@ -130,7 +121,6 @@ var regexComment = []string{
 var regexStrings = map[StrType][]string{
 	TypeTransferID:        regexTransferID,
 	TypeTimestamp:         regexTimestamp,
-	TypeSlurmJobID:        regexSlurmJobID,
 	TypePath:              regexPath,
 	TypeSlurmJobIDComment: regexSlurmJobID,
 	TypeComment:           regexComment,
@@ -149,15 +139,6 @@ var queryTransferID = []string{
 	queryAttributes["transferID"],
 }
 
-// String list of transfer attributes associated with SlurmJobID
-var querySlurmJobID = []string{
-	// queryAttributes["slurmjobids"],
-	queryAttributes["slurm_validation"],
-	queryAttributes["slurm_setup"],
-	queryAttributes["slurm_transfer"],
-	queryAttributes["slurm_teardown"],
-}
-
 // String list of transfer attributes associated with Path
 var queryPath = []string{
 	queryAttributes["destination"],
@@ -174,7 +155,6 @@ var queryComment = []string{
 var queryStrings = map[StrType][]string{
 	TypeTimestamp:         queryTimestamp,
 	TypeTransferID:        queryTransferID,
-	TypeSlurmJobID:        querySlurmJobID,
 	TypePath:              queryPath,
 	TypeSlurmJobIDComment: queryComment,
 	TypeComment:           queryComment,

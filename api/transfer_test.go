@@ -27,7 +27,7 @@ var (
 )
 
 func TestParseETCDTransfersKey(t *testing.T) {
-	// example etcd key: transfers/123456/slurmJobIDs/TEARDOWN
+	// example etcd key: transfers/123456/schedulerNodes/TEARDOWN
 	for _, schedulerCommand := range commands {
 		uid := uuid.New()
 		ek := fmt.Sprintf("transfers/%s/schedulerNodes/%s", uid, schedulerCommand.String())
