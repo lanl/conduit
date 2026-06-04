@@ -115,6 +115,7 @@ var regexPath = []string{
 var regexComment = []string{
 	"^[0-9]+$",
 	"^SLURMJOB:[0-9]+,SLURMINDEX:[0-9]+,SLURMTYPE:(?:CONDUIT_PRE|CONDUIT_POST)$",
+	"^SLURMJOB:[0-9]+,$",
 }
 
 // Map of type to slice of regex strings
