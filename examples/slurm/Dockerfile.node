@@ -1,0 +1,15 @@
+ARG SLURM_VER="24.05.8"
+
+FROM slurmd:${SLURM_VER}
+
+RUN adduser -u 1433 testuser
+
+# add pftool stuff
+RUN dnf install -y mpi openmpi-devel openssl-devel openssh-server \
+    && ssh-keygen -f /etc/ssh/ssh_host_rsa_key -N '' -t rsa \
+    && ssh-keygen -f /etc/ssh/ssh_host_ecdsa_key -N '' -t ecdsa \
+    && ssh-keygen -f /etc/ssh/ssh_host_ed25519_key -N '' -t ed25519
+
+
+COPY node-entrypoint.sh /etc/slurm/
+ENTRYPOINT ["/etc/slurm/node-entrypoint.sh"]

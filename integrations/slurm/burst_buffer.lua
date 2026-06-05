@@ -346,8 +346,16 @@ function exec_cmd(cmd, args)
 		posix.close(w_fd)
 
 		-- execp: searches PATH if cmd is not absolute
-		posix.execp(cmd, args)
-		-- only reaches here on error
+		local _, exec_err, exec_errno = posix.execp(cmd, args)
+
+		-- only reaches here on execp error
+		posix.write(
+			posix.STDERR_FILENO,
+			"failed to exec " .. tostring(cmd) ..
+			": " .. tostring(exec_err) ..
+			" errno=" .. tostring(exec_errno) .. "\n"
+		)
+
 		posix._exit(127)
 	end
 
@@ -375,9 +383,14 @@ function exec_cmd(cmd, args)
 
 	local _, reason, status = posix.wait(pid)
 	local out = table.concat(chunks)
+
 	if reason ~= "exited" or status ~= 0 then
+		if out == "" then
+			out = "command produced no stdout/stderr"
+		end
 		return false, out .. " " .. reason .. " " .. status
 	end
+
 	return true, out
 end
 

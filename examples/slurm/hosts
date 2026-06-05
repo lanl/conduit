@@ -1,0 +1,5 @@
+127.0.0.1       localhost
+
+192.168.22.5    slurm.example.com       slurm 
+192.168.22.6    node1.example.com       node1 
+192.168.22.7    node2.example.com       node2 
