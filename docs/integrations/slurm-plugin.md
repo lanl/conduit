@@ -363,6 +363,72 @@ conduit status 'SLURMJOB:10,'
 
 The trailing comma is intentional. It prevents matching jobs with similar prefixes, such as matching `SLURMJOB:100` when querying for `SLURMJOB:10`.
 
+## Docker Example
+
+A complete example demonstrating the Slurm plugin with Conduit is available in the repository. This example uses Docker containers to set up a complete Slurm cluster with the Conduit burst buffer plugin.
+
+### Prerequisites
+
+**The main Conduit Docker example must be running before starting the Slurm example.** The Slurm example connects to the Conduit server running in the main example environment.
+
+First, start the main Conduit example:
+
+```bash
+cd examples/docker
+./build.sh
+./run.sh
+```
+
+### Quick Start
+
+Build the Slurm example environment:
+
+```bash
+cd examples/slurm
+./build.sh
+```
+
+Start the Slurm cluster:
+
+```bash
+./run.sh
+```
+
+### Running a Test Job
+
+Access the Slurm controller container:
+
+```bash
+docker compose exec slurmctld /bin/bash
+```
+
+Switch to the test user and submit a job:
+
+```bash
+su -l testuser
+sbatch job.batch
+```
+
+Monitor the job status:
+
+```bash
+scontrol show job 1
+```
+
+Check Conduit burst buffer status:
+
+```bash
+scontrol show bbstat conduit 1
+```
+
+### Cleanup
+
+Stop and remove the containers:
+
+```bash
+./destroy.sh
+```
+
 ## See Also
 
 - [Conduit Installation](../installation.md)
