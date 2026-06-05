@@ -20,8 +20,8 @@ services:
       - /etc/conduit/keys/conduit-external-ca.pem:/etc/conduit/conduit-external-ca.pem:ro
       - ../docker/config_files/conduit-cli-config.yaml:/etc/conduit/conduit-cli-config.yaml:ro
       - ./job.batch:/home/testuser/job.batch
-      - ../../integrations/slurm/burst_buffer.lua:/usr/local/etc/burst_buffer.lua:ro
-      - ../../integrations/slurm/burst_buffer.conf:/usr/local/etc/burst_buffer.conf:ro
+      - ../../integrations/slurm/burst_buffer.lua:/etc/conduit/burst_buffer.lua:ro
+      - ../../integrations/slurm/burst_buffer.conf:/etc/conduit/burst_buffer.conf:ro
     networks:
       docker_conduit:
         ipv4_address: 192.168.20.150

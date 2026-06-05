@@ -1,6 +1,6 @@
 ARG SLURM_VER="24.05.8"
 
-FROM conduit-cmd:latest AS conduit-cmd
+FROM conduit-cli:latest AS conduit-cli
 
 FROM slurmctld:${SLURM_VER}
 
@@ -15,6 +15,6 @@ RUN ln -s /etc/conduit/burst_buffer.lua /usr/local/etc/burst_buffer.lua && \
 
 COPY slurm-entrypoint.sh /etc/slurm_docker/
 
-COPY --from=conduit-cmd /sbin/conduit /usr/bin/conduit
+COPY --from=conduit-cli /sbin/conduit /usr/sbin/conduit
 
 ENTRYPOINT ["/etc/slurm_docker/slurm-entrypoint.sh"]
