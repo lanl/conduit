@@ -4,7 +4,6 @@ package fta
 
 import (
 	"fmt"
-	"path/filepath"
 	"sync"
 
 	"github.com/google/uuid"
@@ -52,12 +51,6 @@ func StartPluginValidate(log *logger.ConduitLogger, it proto.IncompleteTransfer,
 	// add destination to pluginData
 	pluginData.DestinationPluginInfo = dstPlugin
 
-	// get all source bases
-	sourceBases := []string{}
-	for _, s := range sources {
-		sourceBases = append(sourceBases, filepath.Base(s))
-	}
-
 	// add sources to pluginData
 	for _, s := range sources {
 		pluginData.SourcePluginInfo[s] = sourcePlugins[s]
@@ -74,11 +67,11 @@ func StartPluginValidate(log *logger.ConduitLogger, it proto.IncompleteTransfer,
 	go func() {
 		defer wg.Done()
 		var destPluginErrors plugin.PluginErrors
-		log.Debugf("sourceBases: %v", sourceBases)
+		log.Debugf("sources: %v", sources)
 		log.Debugf("destination: %v", destination)
 		log.Debugf("dstPlugin.ResolvedFTAPath: %v", dstPlugin.ResolvedFTAPath)
 		log.Debugf("dstPlugin.FSC: %v", dstPlugin.FSC)
-		destPluginErrors, userDestinations, resolvedFTADestinations, destInfo, ppd = dstPlugin.Plugin.ValidateDestination(sourceBases, destination, dstPlugin.ResolvedFTAPath, dstPlugin.FSC)
+		destPluginErrors, userDestinations, resolvedFTADestinations, destInfo, ppd = dstPlugin.Plugin.ValidateDestination(sources, destination, dstPlugin.ResolvedFTAPath, dstPlugin.FSC)
 		pdLock.Lock()
 		for i, d := range userDestinations {
 			pluginData.DestinationsPluginInfo[d] = &plugin.PluginPathInfo{

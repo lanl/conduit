@@ -42,13 +42,18 @@ var (
 func TestFindLeaseChildren(t *testing.T) {
 	transferID := uuid.New()
 
-	leaseMap, err := createLeaseMap()
+	leaseMap, err := createLeaseMap(transferID)
 	if err != nil {
 		t.Fatalf("failed to create lease map: %v", err)
 	}
+
 	children := findLeaseChildren(testLeasePath, transferID, leaseMap, proto.LeaseType_SOURCE)
 
 	for id, c := range children {
+		if id == transferID {
+			t.Fatalf("this transfer's id was unexpectedly found")
+		}
+
 		if id.String()[0:1] != "1" {
 			t.Fatalf("found a path that wasn't a child of [%v]: [%v]", testLeasePath, c)
 		}
@@ -60,13 +65,21 @@ func TestFindLeaseChildren(t *testing.T) {
 }
 
 func TestFindLeaseParents(t *testing.T) {
-	leaseMap, err := createLeaseMap()
+	transferID := uuid.New()
+
+	leaseMap, err := createLeaseMap(transferID)
 	if err != nil {
 		t.Fatalf("failed to create lease map: %v", err)
 	}
-	parents := findLeaseParents(testLeasePath, leaseMap, proto.LeaseType_SOURCE)
+	parents := findLeaseParents(testLeasePath, transferID, leaseMap, proto.LeaseType_SOURCE)
+
+	t.Logf("lease map: %+v", leaseMap)
 
 	for id, c := range parents {
+		if id == transferID {
+			t.Fatalf("this transfer's id was unexpectedly found")
+		}
+
 		if id.String()[0:1] != "3" {
 			t.Fatalf("found a path that wasn't a parent of [%v]: [%v]", testLeasePath, c)
 		}
@@ -80,13 +93,17 @@ func TestFindLeaseParents(t *testing.T) {
 func TestFindLeaseExacts(t *testing.T) {
 	transferID := uuid.New()
 
-	leaseMap, err := createLeaseMap()
+	leaseMap, err := createLeaseMap(transferID)
 	if err != nil {
 		t.Fatalf("failed to create lease map: %v", err)
 	}
 	exacts := findLeaseExacts(testLeasePath, transferID, leaseMap, proto.LeaseType_SOURCE)
 
 	for id, c := range exacts {
+		if id == transferID {
+			t.Fatalf("this transfer's id was unexpectedly found")
+		}
+
 		if id.String()[0:1] != "4" {
 			t.Fatalf("found a path that wasn't an exact of [%v]: [%v]", testLeasePath, c)
 		}
@@ -97,7 +114,7 @@ func TestFindLeaseExacts(t *testing.T) {
 	}
 }
 
-func createLeaseMap() (map[uuid.UUID]*proto.Leases, error) {
+func createLeaseMap(id uuid.UUID) (map[uuid.UUID]*proto.Leases, error) {
 	finalMap := map[uuid.UUID]*proto.Leases{}
 
 	for i, p := range testChildren {
@@ -107,7 +124,8 @@ func createLeaseMap() (map[uuid.UUID]*proto.Leases, error) {
 			return nil, err
 		}
 		finalMap[uuid] = &proto.Leases{
-			Source: []string{p},
+			Source:      []string{p},
+			Destination: []string{p},
 		}
 	}
 	for i, p := range testSiblings {
@@ -116,7 +134,8 @@ func createLeaseMap() (map[uuid.UUID]*proto.Leases, error) {
 			return nil, err
 		}
 		finalMap[uuid] = &proto.Leases{
-			Source: []string{p},
+			Source:      []string{p},
+			Destination: []string{p},
 		}
 	}
 	for i, p := range testParents {
@@ -125,17 +144,33 @@ func createLeaseMap() (map[uuid.UUID]*proto.Leases, error) {
 			return nil, err
 		}
 		finalMap[uuid] = &proto.Leases{
-			Source: []string{p},
+			Source:      []string{p},
+			Destination: []string{p},
 		}
 	}
 
+	// add a transfer with the same lease path that we're matching aginst but a different uuid
 	uuid, err := uuid.Parse(fmt.Sprintf("40000000-0000-0000-0000-%012d", 0))
 	if err != nil {
 		return nil, err
 	}
 	finalMap[uuid] = &proto.Leases{
-		Source: []string{testLeasePath},
+		Source:      []string{testLeasePath},
+		Destination: []string{testLeasePath},
 	}
+
+	// add a transfer with the same lease path and uuid that we're matching aginst
+	finalMap[id] = &proto.Leases{
+		Source:      []string{testLeasePath},
+		Destination: []string{testLeasePath},
+	}
+	// add parents, siblings, and children to this transfer too
+	finalMap[id].Source = append(finalMap[id].Source, testParents...)
+	finalMap[id].Source = append(finalMap[id].Source, testSiblings...)
+	finalMap[id].Source = append(finalMap[id].Source, testChildren...)
+	finalMap[id].Destination = append(finalMap[id].Destination, testParents...)
+	finalMap[id].Destination = append(finalMap[id].Destination, testSiblings...)
+	finalMap[id].Destination = append(finalMap[id].Destination, testChildren...)
 
 	return finalMap, nil
 }

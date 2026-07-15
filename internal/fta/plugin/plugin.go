@@ -53,7 +53,7 @@ type ConduitFTAPlugin interface {
 	// GetResolvedPath returns a fully resolved ftaPath from a userPath. This includes following symlinks. Return any symlinks that point to a different filesystem to have conduit retry with that filesystems plugin
 	GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *FileSystemConfig) (resolvedFTAPath string, foundSymlink string, pathError *FTAPathError)
 	// ValidateDestination will execute any validation the plugin needs to do for the destination. The plugin should return userPathDestinations, ftaDestinations, destInfo, and pluginPathData
-	ValidateDestination(sourceBases []string, userDestination string, ftaDestination string, fsConfig *FileSystemConfig) (pluginErrors PluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string)
+	ValidateDestination(userSources []string, userDestination string, ftaDestination string, fsConfig *FileSystemConfig) (pluginErrors PluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string)
 	// Setup runs before the Transfer. newPathInfo.TransferPath must be set for the transfer plugin to know what path to use
 	Setup(transferID uuid.UUID, pathInfo *PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress UpdateTransferProgress) (pluginErrors PluginErrors, newPathInfo *PluginPathInfo)
 	// Transfer should be when the plugin actually moves data
