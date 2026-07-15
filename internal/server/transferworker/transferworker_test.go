@@ -47,8 +47,6 @@ func TestFindLeaseChildren(t *testing.T) {
 		t.Fatalf("failed to create lease map: %v", err)
 	}
 
-	// add a child with this transfers id
-
 	children := findLeaseChildren(testLeasePath, transferID, leaseMap, proto.LeaseType_SOURCE)
 
 	for id, c := range children {
