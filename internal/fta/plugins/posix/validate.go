@@ -29,8 +29,8 @@ func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, acti
 }
 
 // ValidateDestination validates the destination and gets all resolved destinations. This assumes the ftaDestination is already resolved of symlinks
-func (p *PosixPlugin) ValidateDestination(sourceBases []string, userDestination string, ftaDestination string, fsConfig *plugin.FileSystemConfig) (pluginErrors plugin.PluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string) {
-	p.log.Debugf("posix plugin validating destination[%v](%v) with source bases %v", userDestination, ftaDestination, sourceBases)
+func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination string, ftaDestination string, fsConfig *plugin.FileSystemConfig) (pluginErrors plugin.PluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string) {
+	p.log.Debugf("posix plugin validating destination[%v](%v) with sources %v", userDestination, ftaDestination, userSources)
 
 	// get destinfo for destination to see if it's a directory or not
 	destInfo, pErr, err := isFTADestDir(ftaDestination)
@@ -43,6 +43,22 @@ func (p *PosixPlugin) ValidateDestination(sourceBases []string, userDestination 
 		}
 		// return destInfo, foundSymlink, leaseErrors
 		return plugin.PluginErrors{Errors: []*plugin.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
+	}
+
+	// get all source bases
+	sourceBases := []string{}
+	for _, s := range userSources {
+		sourceBases = append(sourceBases, filepath.Base(s))
+
+		// check if any sources are exactly the same as the destination
+		if s == userDestination {
+			tErr := &plugin.FTAPathError{
+				LeasePath:  userDestination,
+				ErrMessage: fmt.Errorf("no source can match the destination: %v", s),
+				PErr:       proto.Error_ERROR_VALIDATION,
+			}
+			return plugin.PluginErrors{Errors: []*plugin.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
+		}
 	}
 
 	// the dest must exist and be a directory if multiple sources are provided
