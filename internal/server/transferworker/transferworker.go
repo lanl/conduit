@@ -438,7 +438,7 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 	conflictingTransfers := make(map[uuid.UUID]bool)
 	// check this transfer's sources and destinations don't conflict with the running destinations
 	for _, lease := range combinedLeases {
-		parents := findLeaseParents(lease, parsedLeases, proto.LeaseType_DESTINATION)
+		parents := findLeaseParents(lease, tid, parsedLeases, proto.LeaseType_DESTINATION)
 		children := findLeaseChildren(lease, tid, parsedLeases, proto.LeaseType_DESTINATION)
 		exacts := findLeaseExacts(lease, tid, parsedLeases, proto.LeaseType_DESTINATION)
 
@@ -467,7 +467,7 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 
 	// check this transfer's destinations don't conflict with the running sources
 	for _, lease := range leases.GetDestination() {
-		parents := findLeaseParents(lease, parsedLeases, proto.LeaseType_SOURCE)
+		parents := findLeaseParents(lease, tid, parsedLeases, proto.LeaseType_SOURCE)
 		children := findLeaseChildren(lease, tid, parsedLeases, proto.LeaseType_SOURCE)
 		exacts := findLeaseExacts(lease, tid, parsedLeases, proto.LeaseType_SOURCE)
 
@@ -783,7 +783,7 @@ func (tw *TransferWorker) parseETCDLeases(kvs []*mvccpb.KeyValue) map[uuid.UUID]
 }
 
 // findLeaseParents returns all matching parents of a lease from a list of paths
-func findLeaseParents(lease string, leases map[uuid.UUID]*proto.Leases, leaseType proto.LeaseType) map[uuid.UUID][]string {
+func findLeaseParents(lease string, tid uuid.UUID, leases map[uuid.UUID]*proto.Leases, leaseType proto.LeaseType) map[uuid.UUID][]string {
 	parents := make(map[uuid.UUID][]string)
 
 	possibleParents := util.PathParents(lease)
@@ -796,9 +796,12 @@ func findLeaseParents(lease string, leases map[uuid.UUID]*proto.Leases, leaseTyp
 			paths = l.GetDestination()
 		}
 
-		fp := util.FindParents(possibleParents, paths)
-		if len(fp) > 0 {
-			parents[id] = append(parents[id], fp...)
+		// make sure to exclude the lease we are matching against
+		if id != tid {
+			fp := util.FindParents(possibleParents, paths)
+			if len(fp) > 0 {
+				parents[id] = append(parents[id], fp...)
+			}
 		}
 	}
 	return parents
