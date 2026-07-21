@@ -7,6 +7,7 @@ import (
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/lanl/conduit/internal/logger"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 const (
@@ -45,17 +46,17 @@ func (p *PftoolPlugin) ValidateDestination(sourceBases []string, userDestination
 }
 
 // no op
-func (p *PftoolPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, action proto.Action) (pluginErrors plugin.PluginErrors, pluginPathData *string) {
+func (p *PftoolPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, action string, options map[string]*anypb.Any) (pluginErrors plugin.PluginErrors, pluginPathData *string, omit bool) {
+	return plugin.PluginErrors{}, nil, false
+}
+
+// no op
+func (p *PftoolPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
 	return plugin.PluginErrors{}, nil
 }
 
 // no op
-func (p *PftoolPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
-	return plugin.PluginErrors{}, nil
-}
-
-// no op
-func (p *PftoolPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (_ plugin.PluginErrors) {
+func (p *PftoolPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (_ plugin.PluginErrors) {
 	return plugin.PluginErrors{}
 }
 

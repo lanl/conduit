@@ -309,7 +309,7 @@ func (tw *TransferWorker) handleStateUpdate(it proto.IncompleteTransfer, fromSta
 	}
 
 	// submit scheduler job
-	pErr, err = tw.startSchedulerJob(t, t.GetUser(), t.GetAction(), command, successfulState)
+	pErr, err = tw.startSchedulerJob(t, t.GetUser(), command, successfulState)
 	if err != nil {
 		_, _, err := tw.em.SafelyAddErr(t, pErr, err)
 		if err != nil {

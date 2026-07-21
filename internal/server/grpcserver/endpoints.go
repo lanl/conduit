@@ -83,6 +83,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 	transfer.CreatedTime = timestamppb.Now()
 	transfer.Comment = comment
 	transfer.Action = tr.GetAction()
+	transfer.Options = tr.GetOptions()
 	transfer.PausedState = pauseState
 	transfer.ValidationOnly = false
 	transfer.Expiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
@@ -656,6 +657,7 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 	transfer.CreatedTime = timestamppb.Now()
 	transfer.Comment = tr.GetComment()
 	transfer.Action = tr.GetAction()
+	transfer.Options = tr.GetOptions()
 	transfer.PausedState = pauseState
 	transfer.ValidationOnly = true
 	transfer.Expiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))

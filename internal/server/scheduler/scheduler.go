@@ -136,7 +136,6 @@ func (s *Scheduler) StartScheduler() error {
 		creds := gcredentials.NewTLS(tlsConfig)
 
 		opts := []grpc.DialOption{
-			grpc.WithReturnConnectionError(),
 			grpc.WithTransportCredentials(creds),
 		}
 
@@ -495,7 +494,7 @@ func (s *Scheduler) jobRequest() {
 
 			c, cancel := context.WithTimeout(context.Background(), defaults.DefaultRunnerTimeout)
 
-			resp, submitErr := n.client.SubmitFTAJob(c, jobReq)
+			resp, submitErr := n.client.SubmitFTAJob(c, jobReq, grpc.WaitForReady(true))
 			if submitErr != nil {
 				s.log.Errorf("failed to submit job [%s] command [%s]: %v", top.SchedulerCommand.String(), top.JobID.String(), submitErr)
 				cancel()
@@ -613,7 +612,7 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 
 	s.nodeInfoLock.RLock()
 	// listens for updates on stream regarding the current status of the nodes
-	stream, err := ni.client.GetNodeStatusStream(ctx, &emptypb.Empty{})
+	stream, err := ni.client.GetNodeStatusStream(ctx, &emptypb.Empty{}, grpc.WaitForReady(true))
 	s.nodeInfoLock.RUnlock()
 
 	if err != nil {

@@ -217,7 +217,7 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 
 	cmdOptions := viper.GetStringSlice(defaults.ConfigFTAOptionsKey)
 
-	cmdArgs := []string{req.Cmd.String(), transfer.GetAction().String()}
+	cmdArgs := []string{req.Cmd.String()}
 	cmdArgs = append(cmdArgs, cmdOptions...)
 
 	ftaPath := viper.GetString(defaults.ConfigFTAPathKey)

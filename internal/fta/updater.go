@@ -99,13 +99,13 @@ func (u *Updater) updateTransferProgress(esd conduitproto.ETCDStatusDetails) err
 }
 
 // updateProgress will send updates to etcd based off the pftool progress
-func (u *Updater) updateAction(currentAction conduitproto.Action, newAction conduitproto.Action) error {
+func (u *Updater) updateAction(currentAction string, newAction string) error {
 	txnCompare := []clientv3.Cmp{
-		clientv3.Compare(clientv3.Value(u.it.ETCDActionKey()), "=", currentAction.String()),
+		clientv3.Compare(clientv3.Value(u.it.ETCDActionKey()), "=", currentAction),
 	}
 
 	txnActions := []clientv3.Op{
-		clientv3.OpPut(u.it.ETCDActionKey(), newAction.String()),
+		clientv3.OpPut(u.it.ETCDActionKey(), newAction),
 	}
 
 	retryCount := viper.GetInt(defaults.ConfigFTAVerifyRetryCountKey)

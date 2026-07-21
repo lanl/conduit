@@ -12,7 +12,7 @@ import (
 	"github.com/lanl/conduit/internal/logger"
 )
 
-func StartPluginTransfer(log *logger.ConduitLogger, it proto.IncompleteTransfer, em *etcd.ETCDManager, action proto.Action, nodeList string) plugin.PluginErrors {
+func StartPluginTransfer(log *logger.ConduitLogger, it proto.IncompleteTransfer, em *etcd.ETCDManager, nodeList string) plugin.PluginErrors {
 	transferID, err := uuid.Parse(it.GetTransferID())
 	if err != nil {
 		return plugin.PluginErrors{
@@ -25,13 +25,24 @@ func StartPluginTransfer(log *logger.ConduitLogger, it proto.IncompleteTransfer,
 		}
 	}
 
+	// get action and options for transfer
+	action, options, err := em.GetActionAndOptions(it)
+	if err != nil {
+		return plugin.PluginErrors{
+			Errors: []*plugin.FTAPathError{{
+				PErr:       proto.Error_ERROR_ETCD_CONNECTION,
+				ErrMessage: fmt.Errorf("failed to get action and options from etcd: %v", err),
+			}},
+		}
+	}
+
 	// get sources and destination for transfer
-	pluginData, pErr, err := getPluginDataFromETCD(it, em)
+	pluginData, err := em.GetPluginData(it)
 	if err != nil {
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
 				{
-					PErr:       pErr,
+					PErr:       proto.Error_ERROR_ETCD_CONNECTION,
 					ErrMessage: fmt.Errorf("failed to get plugin data from etcd: %v", err),
 				},
 			},
@@ -66,7 +77,7 @@ func StartPluginTransfer(log *logger.ConduitLogger, it proto.IncompleteTransfer,
 	updater := NewUpdater(log, em, it)
 
 	// run the transfer
-	errs := transferPlugin.Transfer(transferID, pluginData, destInfo, action, updater.updateTransferProgress, updater.updateAction)
+	errs := transferPlugin.Transfer(transferID, pluginData, destInfo, action, options, updater.updateTransferProgress, updater.updateAction)
 
 	return errs
 }

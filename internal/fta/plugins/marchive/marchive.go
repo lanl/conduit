@@ -7,6 +7,7 @@ import (
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/lanl/conduit/internal/logger"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 const (
@@ -43,8 +44,8 @@ func (p *MarchivePlugin) GetResolvedPath(userPath string, pathType proto.LeaseTy
 }
 
 // no op
-func (p *MarchivePlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, action proto.Action) (pluginErrors plugin.PluginErrors, pluginPathData *string) {
-	return plugin.PluginErrors{}, nil
+func (p *MarchivePlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, action string, options map[string]*anypb.Any) (pluginErrors plugin.PluginErrors, pluginPathData *string, omit bool) {
+	return plugin.PluginErrors{}, nil, false
 }
 
 // no op
@@ -53,7 +54,7 @@ func (p *MarchivePlugin) ValidateDestination(sourceBases []string, userDestinati
 }
 
 // no op
-func (p *MarchivePlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action proto.Action, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
+func (p *MarchivePlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
 	return plugin.PluginErrors{}
 }
 

@@ -14,7 +14,7 @@ import (
 )
 
 // startSchedulerJob submits a job to scheduler
-func (tm *TransferWorker) startSchedulerJob(t *proto.TransferDetails, user string, action proto.Action, command proto.SchedulerCommand, successfulState proto.TransferState) (proto.Error, error) {
+func (tm *TransferWorker) startSchedulerJob(t *proto.TransferDetails, user string, command proto.SchedulerCommand, successfulState proto.TransferState) (proto.Error, error) {
 	// if this is a validation job, add the transfer as a user to etcd
 	if command == proto.SchedulerCommand_VALIDATION {
 		// create etcd user for transfer

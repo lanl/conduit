@@ -97,9 +97,9 @@ func symWalk(pathSuffix string, ftaPathPrefix string, userPathPrefix string, lt 
 
 		fi, err := os.Lstat(currentFullPath)
 		if err != nil {
-			// if this is the destination and the final location doesn't exist, that's okay
-			if errors.Is(err, os.ErrNotExist) && i == len(pathSlice) && lt == proto.LeaseType_DESTINATION {
-				logrus.Debugf("current path[%v] doesn't exist, but it's the end of the destination so we ignore", currentFullPath)
+			// if the final location doesn't exist, that's okay
+			if errors.Is(err, os.ErrNotExist) && i == len(pathSlice) {
+				logrus.Debugf("current path[%v] doesn't exist, but it's the end of the path so we ignore", currentFullPath)
 				continue
 			}
 			return "", "", proto.Error_ERROR_STAT_FAILED, fmt.Errorf("failed to lstat path[%v]: %v", currentFullPath, err)

@@ -32,6 +32,7 @@ import (
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
 	gcredentials "google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -122,9 +123,6 @@ func getGRPCClient(log *logrus.Logger, quiet bool, certPath string, keyPath stri
 	creds := gcredentials.NewTLS(tlsConfig)
 
 	opts := []grpc.DialOption{
-		// grpc.WithBlock(),
-		grpc.WithReturnConnectionError(),
-		grpc.FailOnNonTempDialError(true),
 		grpc.WithTransportCredentials(creds),
 	}
 
@@ -279,7 +277,7 @@ func getKrbClient(logger *logrus.Logger, servicePrincipalName string, quiet bool
 }
 
 // StartTransfer sends a GRPC transfer request to the conduit server
-func (cc *ConduitClient) StartTransfer(action proto.Action, src []string, dst string, skipValidation bool, skipStat bool, pauseState proto.TransferState, validationOnly bool, user string, comment string, workdir string) (*proto.TransferDetails, error) {
+func (cc *ConduitClient) StartTransfer(action string, options map[string]*anypb.Any, src []string, dst string, skipValidation bool, pauseState proto.TransferState, validationOnly bool, user string, comment string, workdir string) (*proto.TransferDetails, error) {
 	notifyOfChangedPath := false
 	cleanSrc := []string{}
 	for _, s := range src {
@@ -294,19 +292,7 @@ func (cc *ConduitClient) StartTransfer(action proto.Action, src []string, dst st
 		if as != s {
 			notifyOfChangedPath = true
 		}
-		if (action == proto.Action_COPY || action == proto.Action_MOVE) && !skipStat {
-			sfi, err := os.Lstat(as)
-			if err != nil {
-				return nil, fmt.Errorf("failed to stat source absolute path[%v]: %v", as, err)
-			}
-			if sfi.Mode().IsDir() && !cc.quiet {
-				fmt.Printf("omitting directory '%v' (use recursive flag to include directories)\n", as)
-			} else {
-				cleanSrc = append(cleanSrc, as)
-			}
-		} else {
-			cleanSrc = append(cleanSrc, as)
-		}
+		cleanSrc = append(cleanSrc, as)
 	}
 	if len(cleanSrc) == 0 {
 		// fmt.Printf("no valid sources have been provided, check earlier error messages\n")
@@ -335,6 +321,7 @@ func (cc *ConduitClient) StartTransfer(action proto.Action, src []string, dst st
 	tr := &proto.TransferRequest{
 		User:        user,
 		Action:      action,
+		Options:     options,
 		Source:      cleanSrc,
 		Destination: cleanDst,
 		PausedState: pauseState,
@@ -349,12 +336,12 @@ func (cc *ConduitClient) StartTransfer(action proto.Action, src []string, dst st
 	var response *proto.TransferDetails
 
 	if validationOnly {
-		response, err = cc.client.ValidateTransfer(ctx, tr)
+		response, err = cc.client.ValidateTransfer(ctx, tr, grpc.WaitForReady(true))
 		if err != nil {
 			return nil, fmt.Errorf("failed to send transfer request: %v", err)
 		}
 	} else {
-		response, err = cc.client.StartTransfer(ctx, tr)
+		response, err = cc.client.StartTransfer(ctx, tr, grpc.WaitForReady(true))
 		if err != nil {
 			return nil, fmt.Errorf("failed to send transfer request: %v", err)
 		}
@@ -429,12 +416,12 @@ func (cc *ConduitClient) StartTransfer(action proto.Action, src []string, dst st
 						// these states are all problematic (abort, error, etc)
 						// do error stuff
 						wErr := fmt.Errorf("%v: %v", wtd.GetError(), wtd.GetErrorMessage())
-						return nil, wErr
+						return wtd, wErr
 					case s == 0 || (s >= 10 && s <= 14):
 						// ignore. These states are normal starting states
 					case s >= 15:
 						// success
-						return response, nil
+						return wtd, nil
 					default:
 						return nil, fmt.Errorf("received unrecognized state: %v", wtd.GetState())
 					}
@@ -449,7 +436,7 @@ func (cc *ConduitClient) GetVersion() (*proto.VersionInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	response, err := cc.client.Version(ctx, &emptypb.Empty{})
+	response, err := cc.client.Version(ctx, &emptypb.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get conduit version: %v", err)
 	}
@@ -468,7 +455,7 @@ func (cc *ConduitClient) PauseTransfer(id uuid.UUID, pauseState proto.TransferSt
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	response, err := cc.client.PauseTransfer(ctx, pr)
+	response, err := cc.client.PauseTransfer(ctx, pr, grpc.WaitForReady(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send pause request: %v", err)
 	}
@@ -486,7 +473,7 @@ func (cc *ConduitClient) StopTransfer(tids []string) (*proto.MultiTransferDetail
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	response, err := cc.client.StopTransfer(ctx, pTids)
+	response, err := cc.client.StopTransfer(ctx, pTids, grpc.WaitForReady(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send abort request: %v", err)
 	}
@@ -519,7 +506,7 @@ func (cc *ConduitClient) Query(qo *proto.QueryOptions) (*proto.MultiTransferDeta
 
 	grpcLimit := viper.GetInt(defaults.ConfigClientGrpcLimitKey)
 
-	response, err := cc.client.Query(ctx, qo, grpc.MaxCallRecvMsgSize(grpcLimit))
+	response, err := cc.client.Query(ctx, qo, grpc.MaxCallRecvMsgSize(grpcLimit), grpc.WaitForReady(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send query request: %v", err)
 	}
@@ -531,7 +518,7 @@ func (cc *ConduitClient) Query(qo *proto.QueryOptions) (*proto.MultiTransferDeta
 // in close to real time
 func (cc *ConduitClient) WatchStatus(tids []string, user string) (proto.ConduitApi_WatchStatusClient, context.CancelFunc, error) {
 	ctx, wCancel := context.WithCancel(context.Background())
-	wc, err := cc.client.WatchStatus(ctx, &proto.TransferIds{Value: tids, User: user})
+	wc, err := cc.client.WatchStatus(ctx, &proto.TransferIds{Value: tids, User: user}, grpc.WaitForReady(true))
 	if err != nil {
 		wCancel()
 		return nil, nil, fmt.Errorf("failed to watch transfer[%v]: %v", tids, err)
@@ -570,7 +557,7 @@ func (cc *ConduitClient) ServerControl(action proto.ServerControlAction) (*proto
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	response, err := cc.client.ServerControl(ctx, cr)
+	response, err := cc.client.ServerControl(ctx, cr, grpc.WaitForReady(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send server control request: %v", err)
 	}
@@ -588,7 +575,7 @@ func (cc *ConduitClient) GetCert(user string) (*proto.CertResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	response, err := cc.client.GetCert(ctx, cr)
+	response, err := cc.client.GetCert(ctx, cr, grpc.WaitForReady(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send cert request: %v", err)
 	}
@@ -601,7 +588,7 @@ func (cc *ConduitClient) SchedulerInfo() (*proto.SchedulerInfoResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	response, err := cc.client.SchedulerInfo(ctx, &emptypb.Empty{})
+	response, err := cc.client.SchedulerInfo(ctx, &emptypb.Empty{}, grpc.WaitForReady(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get conduit scheduler info: %v", err)
 	}
@@ -636,7 +623,7 @@ func (cc *ConduitClient) PurgeErrantPaths(paths []string, user string) (*proto.E
 		User:  user,
 	}
 
-	response, err := cc.client.PurgeErrantPath(ctx, req)
+	response, err := cc.client.PurgeErrantPath(ctx, req, grpc.WaitForReady(true))
 	if err != nil {
 		return nil, fmt.Errorf("failed to purge paths: %v", err)
 	}

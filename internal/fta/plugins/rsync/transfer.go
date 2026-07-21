@@ -16,8 +16,11 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
+	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 var rsyncProgressRe = regexp.MustCompile(
@@ -36,7 +39,7 @@ var rsyncFinalFiles = regexp.MustCompile(
 	`^Number of regular files transferred:\s+([0-9,]+)`,
 )
 
-func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action proto.Action, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
+func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
 	p.log.Debugf("scheduler nodelist: %v", os.Getenv("SLURM_JOB_NODELIST"))
 	p.log.Debugf("environ: %+v", os.Environ())
 
@@ -63,8 +66,16 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 	args = append(args, "--owner")          // preserve owner
 	args = append(args, "--specials")       // preserve special files
 
-	if action == proto.Action_RECURSIVE_COPY || action == proto.Action_RECURSIVE_MOVE {
-		args = append(args, "--recursive")
+	// add recursive flag if it was provided by the user
+	if _, ok := options[actions.RecursiveFlag]; ok {
+		var rec wrapperspb.BoolValue
+		if err := options[actions.RecursiveFlag].UnmarshalTo(&rec); err != nil {
+			p.log.Errorf("failed to unmarshal recursive flag: %v", err)
+		}
+
+		if rec.GetValue() {
+			args = append(args, "--recursive")
+		}
 	}
 
 	argTest := strings.Join(args, " ")

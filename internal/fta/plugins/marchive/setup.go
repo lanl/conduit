@@ -10,13 +10,14 @@ import (
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/internal/fta/plugin"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 // Setup for marchive - used only when reading data from a marchive-backed MarFS filesystem. Calls the
 // marchive-tmrequest script to generate READ request/jobs for the Marchive Tape Manager. This call
 // waits/hangs until this script completes, which occurs after the Tape Manager has completed all
 // READ jobs.
-func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
+func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
 	marchiveConfig := &ViperMarchivePluginConfig{}
 	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, marchiveConfig)
 	if err != nil {

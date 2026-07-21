@@ -3,23 +3,28 @@
 package etcd
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/andybalholm/brotli"
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
+	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/lanl/conduit/internal/logger"
 	"github.com/spf13/viper"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -1083,26 +1088,6 @@ func (em *ETCDManager) GetLeases(it proto.IncompleteTransfer) ([]string, error) 
 	return leases, nil
 }
 
-// // GetFullDestinations will get the transfer's fullDestinations from etcd
-// func (em *ETCDManager) GetFullDestinations(it proto.IncompleteTransfer) ([]string, error) {
-// 	resp, err := em.RetryGet(it.ETCDFullDestinationsKey(), defaults.MaxRetries, defaults.RetryDelay)
-// 	if err != nil {
-// 		return []string{}, err
-// 	}
-
-// 	if len(resp.Kvs) < 1 {
-// 		return []string{}, ErrNotFound
-// 	}
-
-// 	destinations := []string{}
-// 	err = json.Unmarshal(resp.Kvs[0].Value, &destinations)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("failed to unmarshal json: %v", err)
-// 	}
-
-// 	return destinations, nil
-// }
-
 // GetSources will get the transfer's sources from etcd
 func (em *ETCDManager) GetSources(it proto.IncompleteTransfer) ([]string, error) {
 	resp, err := em.RetryGet(it.ETCDSourceKey(), defaults.MaxRetries, defaults.RetryDelay)
@@ -1179,4 +1164,118 @@ func (em *ETCDManager) GetStatusDetails(it proto.IncompleteTransfer) (*proto.ETC
 	}
 
 	return esd, nil
+}
+
+// getPluginData will retrieve and format a transfers pluginData from etcd
+func (em *ETCDManager) GetPluginData(it proto.IncompleteTransfer) (*plugin.PluginData, error) {
+	resp, err := em.RetryGet(it.ETCDPluginDataKey(), defaults.MaxRetries, defaults.RetryDelay)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Kvs) < 1 {
+		return nil, ErrNotFound
+	}
+
+	r := brotli.NewReader(bytes.NewReader([]byte(string(resp.Kvs[0].Value))))
+	var decodedOutput bytes.Buffer
+	_, err = io.Copy(&decodedOutput, r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode brotli pluginData for transfer[%v]: %v", it.GetTransferID(), err)
+	}
+
+	pluginData := &plugin.PluginData{}
+	err = json.Unmarshal(decodedOutput.Bytes(), pluginData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal pluginData for transfer[%v]: %v", it.GetTransferID(), err)
+	}
+
+	return pluginData, nil
+}
+
+// GetActionAndOptions will retrieve a transfers action and options from etcd
+func (em *ETCDManager) GetActionAndOptions(it proto.IncompleteTransfer) (action string, options map[string]*anypb.Any, _ error) {
+	options = make(map[string]*anypb.Any)
+
+	txnActions := []clientv3.Op{
+		clientv3.OpGet(it.ETCDActionKey()),
+		clientv3.OpGet(it.ETCDOptionsKey()),
+	}
+
+	resp, err := em.RetryTxn(nil, &txnActions, defaults.MaxRetries, defaults.RetryDelay)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if len(resp.Responses) < 2 {
+		return "", nil, ErrNotFound
+	}
+
+	for i, r := range resp.Responses {
+		rr := r.GetResponseRange()
+
+		switch i {
+		case 0:
+			if len(rr.Kvs) < 1 {
+				return "", nil, fmt.Errorf("etcd didn't return an action")
+			}
+
+			action = string(rr.Kvs[0].Value)
+		case 1:
+			if len(rr.Kvs) < 1 {
+				return "", nil, fmt.Errorf("etcd didn't return any options")
+			}
+
+			err = json.Unmarshal(rr.Kvs[0].Value, &options)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to unmarshal options from string[%v]: %v", rr.Kvs[0].Value, err)
+			}
+		}
+	}
+
+	return action, options, nil
+}
+
+// GetSourcesAndDestination will retrieve a transfers sources and destination from etcd
+func (em *ETCDManager) GetSourcesAndDestination(it proto.IncompleteTransfer) (sources []string, destination string, _ error) {
+	sources = []string{}
+
+	txnActions := []clientv3.Op{
+		clientv3.OpGet(it.ETCDSourceKey()),
+		clientv3.OpGet(it.ETCDDestinationKey()),
+	}
+
+	resp, err := em.RetryTxn(nil, &txnActions, defaults.MaxRetries, defaults.RetryDelay)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if len(resp.Responses) < 2 {
+		return nil, "", ErrNotFound
+	}
+
+	for i, r := range resp.Responses {
+		rr := r.GetResponseRange()
+
+		switch i {
+		case 0:
+			if len(rr.Kvs) < 1 {
+				return nil, "", fmt.Errorf("etcd didn't return any sources")
+			}
+
+			err = json.Unmarshal(rr.Kvs[0].Value, &sources)
+			if err != nil {
+				return nil, "", fmt.Errorf("failed to unmarshal sources from string[%v]: %v", rr.Kvs[0].Value, err)
+			}
+		case 1:
+			if len(rr.Kvs) < 1 {
+				return nil, "", fmt.Errorf("etcd didn't return a destination")
+			}
+
+			destination = string(rr.Kvs[0].Value)
+
+		}
+	}
+
+	return sources, destination, nil
 }
