@@ -75,7 +75,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 		comment = tr.GetComment()
 	}
 
-	// handle depreciated api in case the client hasn't been updated yet
+	// handle deprecated api in case the client hasn't been updated yet
 	action := tr.GetAction()
 	options := make(map[string]*anypb.Any, len(tr.GetOptions())+1)
 	for key, value := range tr.GetOptions() {
@@ -707,7 +707,7 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 		pauseState = tr.GetPausedState()
 	}
 
-	// handle depreciated api in case the client hasn't been updated yet
+	// handle deprecated api in case the client hasn't been updated yet
 	action := tr.GetAction()
 	options := make(map[string]*anypb.Any, len(tr.GetOptions())+1)
 	for key, value := range tr.GetOptions() {

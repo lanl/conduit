@@ -636,10 +636,10 @@ func (cc *ConduitClient) PurgeErrantPaths(paths []string, user string) (*proto.E
 	return response, nil
 }
 
-// simple function used to convert a new action into a depreciated version
+// simple function used to convert a new action into a deprecated version
 // it will return COPY if an action is not recognized
 func GetOldAction(action string, options map[string]*anypb.Any) proto.DeprecatedAction {
-	// determine the depreciated action
+	// determine the deprecated action
 	recursive := false
 
 	// add recursive flag if it was provided by the user
