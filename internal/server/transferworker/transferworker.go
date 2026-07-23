@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/viper"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -369,7 +370,7 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 	leases := t.GetLeases()
 
 	// create op for path list in leases prefix
-	jsonPathList, err := json.Marshal(leases)
+	jsonPathList, err := protojson.Marshal(leases)
 	if err != nil {
 		tErr := fmt.Errorf("transfer[%s]: failed to marshal path list into json for transfer: %v", t.GetTransferID(), err)
 		tw.log.Error(tErr)

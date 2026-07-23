@@ -18,6 +18,8 @@ import (
 )
 
 func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, action string, options map[string]*anypb.Any) (pluginErrors plugin.PluginErrors, pluginPathData *string, omit bool) {
+	warnings := []*plugin.FTAPathError{}
+
 	p.log.Debugf("Starting posix plugin validation on: %v(%v)", pluginPathInfo.OriginalUserPath, pluginPathInfo.ResolvedFTAPath)
 	p.log.Debugf("using fta source: %v", pluginPathInfo.ResolvedFTAPath)
 
@@ -30,12 +32,13 @@ func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, acti
 	if _, ok := options[actions.RecursiveFlag]; ok {
 		if err := options[actions.RecursiveFlag].UnmarshalTo(recursive); err != nil {
 			p.log.Errorf("failed to unmarshal recursive flag: %v", err)
+			warnings = append(warnings, &plugin.FTAPathError{
+				LeasePath:  pluginPathInfo.OriginalUserPath,
+				PErr:       proto.Error_ERROR_INVALID_INPUT,
+				ErrMessage: fmt.Errorf("failed to unmarshal recursive flag: %v", err),
+			})
 		}
-		p.log.Debugf("recursive flag exists: %v", options[actions.RecursiveFlag])
 	}
-
-	p.log.Debugf("recursive flag: %v", recursive)
-	p.log.Debugf("options: %+v", options)
 
 	// get omit missing flag if it was provided by the user
 	omitMissing := wrapperspb.Bool(false)
@@ -43,6 +46,11 @@ func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, acti
 	if _, ok := options[actions.OmitMissingFlag]; ok {
 		if err := options[actions.OmitMissingFlag].UnmarshalTo(omitMissing); err != nil {
 			p.log.Errorf("failed to unmarshal omit-missing flag: %v", err)
+			warnings = append(warnings, &plugin.FTAPathError{
+				LeasePath:  pluginPathInfo.OriginalUserPath,
+				PErr:       proto.Error_ERROR_INVALID_INPUT,
+				ErrMessage: fmt.Errorf("failed to unmarshal omit-missing flag: %v", err),
+			})
 		}
 	}
 
@@ -50,21 +58,21 @@ func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, acti
 	if permErr != nil {
 		if omitMissing.GetValue() && permErr.PErr == proto.Error_ERROR_FILE_NOT_EXIST {
 			// this source is missing, but the user wants to ignore missing sources
-			return plugin.PluginErrors{Warnings: []*plugin.FTAPathError{permErr}}, nil, true
+			return plugin.PluginErrors{Warnings: append(warnings, permErr)}, nil, true
 		}
-		return plugin.PluginErrors{Errors: []*plugin.FTAPathError{permErr}}, nil, false
+		return plugin.PluginErrors{Errors: []*plugin.FTAPathError{permErr}, Warnings: warnings}, nil, false
 	}
 
 	if !recursive.GetValue() && isDir {
 		// this source is a dir, but the user didn't provide a recusrive flag. Add it to warnings
-		return plugin.PluginErrors{Warnings: []*plugin.FTAPathError{{
+		return plugin.PluginErrors{Warnings: append(warnings, &plugin.FTAPathError{
 			LeasePath:  pluginPathInfo.OriginalUserPath,
 			PErr:       proto.Error_ERROR_INVALID_INPUT,
 			ErrMessage: fmt.Errorf("omitting directory [%v] use recursive flag to include directories", pluginPathInfo.OriginalUserPath),
-		}}}, nil, true
+		})}, nil, true
 	}
 
-	return plugin.PluginErrors{}, nil, false
+	return plugin.PluginErrors{Warnings: warnings}, nil, false
 }
 
 // ValidateDestination validates the destination and gets all resolved destinations. This assumes the ftaDestination is already resolved of symlinks

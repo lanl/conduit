@@ -13,6 +13,7 @@ import (
 	proto "github.com/lanl/conduit/api"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -129,7 +130,7 @@ func ParseETCDTransfer(id uuid.UUID, kvs []*mvccpb.KeyValue, old *proto.Transfer
 			t.DestInfo = proto.DestInfo(proto.DestInfo_value[string(kv.Value)])
 		case string(kv.Key) == t.ETCDLeasesKey():
 			leases := &proto.Leases{}
-			err := json.Unmarshal(kv.Value, leases)
+			err := protojson.Unmarshal(kv.Value, leases)
 			if err != nil {
 				return nil, err
 			}
@@ -218,7 +219,7 @@ func ConvertETCDTransfer(t *proto.TransferDetails) ([]clientv3.Op, error) {
 		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer warnings for etcd: %v", t.GetTransferID(), err)
 	}
 
-	leaseList, err := json.Marshal(t.GetLeases())
+	leaseList, err := protojson.Marshal(t.GetLeases())
 	if err != nil {
 		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer leases for etcd: %v", t.GetTransferID(), err)
 	}

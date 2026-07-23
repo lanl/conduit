@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // FTAInit creates a new logger, extracts certificate information from stdin, creates an etcd manager, and retrieves the node list from the environment.
@@ -188,7 +189,7 @@ func CompletePluginETCD(log *logger.ConduitLogger, c proto.SchedulerCommand, it 
 			}
 		}
 
-		allLeasesJSON, err := json.Marshal(&proto.Leases{
+		allLeasesJSON, err := protojson.Marshal(&proto.Leases{
 			Source:      sourceLeases,
 			Destination: destinationLeases,
 		})

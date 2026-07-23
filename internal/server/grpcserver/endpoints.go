@@ -11,10 +11,13 @@ import (
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
+	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/spf13/viper"
 	goproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // StartTransfer is the initial handle of all StartTransfer requests from the gRPC API
@@ -72,6 +75,64 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 		comment = tr.GetComment()
 	}
 
+	// handle depreciated api in case the client hasn't been updated yet
+	action := tr.GetAction()
+	options := make(map[string]*anypb.Any, len(tr.GetOptions())+1)
+	for key, value := range tr.GetOptions() {
+		options[key] = value
+	}
+
+	if action == "" && len(options) == 0 {
+		legacyAction := proto.DeprecatedAction_COPY
+
+		if tr.DeprecatedAction != nil {
+			legacyAction = tr.GetDeprecatedAction()
+		} else {
+			// Old clients did not serialize COPY because COPY == 0.
+			s.log.Debug("legacy action field absent; treating request as legacy COPY")
+		}
+
+		recursive := false
+
+		switch legacyAction {
+		case proto.DeprecatedAction_COPY:
+			action = actions.Action_COPY
+
+		case proto.DeprecatedAction_RECURSIVE_COPY:
+			action = actions.Action_COPY
+			recursive = true
+
+		case proto.DeprecatedAction_MOVE:
+			action = actions.Action_MOVE
+
+		case proto.DeprecatedAction_RECURSIVE_MOVE:
+			action = actions.Action_MOVE
+			recursive = true
+
+		default:
+			return nil, fmt.Errorf(
+				"unsupported deprecated action: %d",
+				legacyAction,
+			)
+		}
+
+		recursiveAny, err := anypb.New(wrapperspb.Bool(recursive))
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to encode recursive option: %w",
+				err,
+			)
+		}
+
+		options[actions.RecursiveFlag] = recursiveAny
+	}
+
+	if action == "" {
+		err := fmt.Errorf("no action provided in request")
+		s.log.Error(err)
+		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_INVALID_INPUT, ErrorMessage: err.Error()}, err
+	}
+
 	transfer := proto.NewTransferDetails()
 
 	transfer.State = proto.TransferState_TRANSFER_INIT
@@ -82,8 +143,8 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 	transfer.User = user
 	transfer.CreatedTime = timestamppb.Now()
 	transfer.Comment = comment
-	transfer.Action = tr.GetAction()
-	transfer.Options = tr.GetOptions()
+	transfer.Action = action
+	transfer.Options = options
 	transfer.PausedState = pauseState
 	transfer.ValidationOnly = false
 	transfer.Expiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
@@ -646,6 +707,64 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 		pauseState = tr.GetPausedState()
 	}
 
+	// handle depreciated api in case the client hasn't been updated yet
+	action := tr.GetAction()
+	options := make(map[string]*anypb.Any, len(tr.GetOptions())+1)
+	for key, value := range tr.GetOptions() {
+		options[key] = value
+	}
+
+	if action == "" && len(options) == 0 {
+		legacyAction := proto.DeprecatedAction_COPY
+
+		if tr.DeprecatedAction != nil {
+			legacyAction = tr.GetDeprecatedAction()
+		} else {
+			// Old clients did not serialize COPY because COPY == 0.
+			s.log.Debug("legacy action field absent; treating request as legacy COPY")
+		}
+
+		recursive := false
+
+		switch legacyAction {
+		case proto.DeprecatedAction_COPY:
+			action = actions.Action_COPY
+
+		case proto.DeprecatedAction_RECURSIVE_COPY:
+			action = actions.Action_COPY
+			recursive = true
+
+		case proto.DeprecatedAction_MOVE:
+			action = actions.Action_MOVE
+
+		case proto.DeprecatedAction_RECURSIVE_MOVE:
+			action = actions.Action_MOVE
+			recursive = true
+
+		default:
+			return nil, fmt.Errorf(
+				"unsupported deprecated action: %d",
+				legacyAction,
+			)
+		}
+
+		recursiveAny, err := anypb.New(wrapperspb.Bool(recursive))
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to encode recursive option: %w",
+				err,
+			)
+		}
+
+		options[actions.RecursiveFlag] = recursiveAny
+	}
+
+	if action == "" {
+		err := fmt.Errorf("no action provided in request")
+		s.log.Error(err)
+		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_INVALID_INPUT, ErrorMessage: err.Error()}, err
+	}
+
 	transfer := proto.NewTransferDetails()
 
 	transfer.State = proto.TransferState_TRANSFER_INIT
@@ -656,8 +775,8 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 	transfer.User = user
 	transfer.CreatedTime = timestamppb.Now()
 	transfer.Comment = tr.GetComment()
-	transfer.Action = tr.GetAction()
-	transfer.Options = tr.GetOptions()
+	transfer.Action = action
+	transfer.Options = options
 	transfer.PausedState = pauseState
 	transfer.ValidationOnly = true
 	transfer.Expiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))

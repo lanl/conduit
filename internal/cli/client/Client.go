@@ -26,6 +26,7 @@ import (
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/cli/util"
+	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/pki"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -34,6 +35,7 @@ import (
 	gcredentials "google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 const Krb5CCNameEnvVar = "KRB5CCNAME"
@@ -318,14 +320,17 @@ func (cc *ConduitClient) StartTransfer(action string, options map[string]*anypb.
 		fmt.Printf("Using destination: %v\n", cleanDst)
 	}
 
+	deprecatedAction := GetOldAction(action, options)
+
 	tr := &proto.TransferRequest{
-		User:        user,
-		Action:      action,
-		Options:     options,
-		Source:      cleanSrc,
-		Destination: cleanDst,
-		PausedState: pauseState,
-		Comment:     comment,
+		User:             user,
+		DeprecatedAction: &deprecatedAction,
+		Action:           action,
+		Options:          options,
+		Source:           cleanSrc,
+		Destination:      cleanDst,
+		PausedState:      pauseState,
+		Comment:          comment,
 	}
 
 	cc.log.Debugf("request to %s src:%v to dst:%v", action, tr.Source, tr.Destination)
@@ -629,4 +634,39 @@ func (cc *ConduitClient) PurgeErrantPaths(paths []string, user string) (*proto.E
 	}
 	// cc.log.Debugf("got respnse: \nsrc: %v \ndst: %v \nuser: %v\nstatus: %v\nstartTime: %v\n", response.GetSource(), response.GetDestination(), response.GetUser(), response.GetStatus(), response.GetStartTime().AsTime().Local())
 	return response, nil
+}
+
+// simple function used to convert a new action into a depreciated version
+// it will return COPY if an action is not recognized
+func GetOldAction(action string, options map[string]*anypb.Any) proto.DeprecatedAction {
+	// determine the depreciated action
+	recursive := false
+
+	// add recursive flag if it was provided by the user
+	if _, ok := options[actions.RecursiveFlag]; ok {
+		var rec wrapperspb.BoolValue
+		if err := options[actions.RecursiveFlag].UnmarshalTo(&rec); err != nil {
+			// silently fail
+			recursive = false
+		}
+
+		recursive = rec.GetValue()
+	}
+
+	switch action {
+	case actions.Action_COPY:
+		if recursive {
+			return proto.DeprecatedAction_RECURSIVE_COPY
+		} else {
+			return proto.DeprecatedAction_COPY
+		}
+	case actions.Action_MOVE:
+		if recursive {
+			return proto.DeprecatedAction_RECURSIVE_MOVE
+		} else {
+			return proto.DeprecatedAction_MOVE
+		}
+	}
+
+	return proto.DeprecatedAction_COPY
 }
