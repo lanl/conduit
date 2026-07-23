@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	anypb "google.golang.org/protobuf/types/known/anypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -36,6 +37,7 @@ const (
 	StatusDetailsKey = "statusDetails"
 	ActiveKey        = "active"
 	ActionKey        = "action"
+	OptionsKey       = "options"
 	CommentKey       = "comment"
 	PausedStateKey   = "pausedState"
 	ArchiveStateKey  = "archiveState"
@@ -109,6 +111,11 @@ func (t *TransferDetails) ETCDActiveKey() string {
 // ETCDActionKey requires TransferDetails to have a minimum of TransferID specified
 func (t *TransferDetails) ETCDActionKey() string {
 	return t.getKey(ActionKey)
+}
+
+// ETCDActionKey requires TransferDetails to have a minimum of TransferID specified
+func (t *TransferDetails) ETCDOptionsKey() string {
+	return t.getKey(OptionsKey)
 }
 
 func (t *TransferDetails) ETCDUserKey() string {
@@ -309,7 +316,7 @@ func NewTransferDetails() *TransferDetails {
 		FilesChunks:            0,
 		DirectoriesTransferred: 0,
 		Active:                 true,
-		Action:                 Action_COPY,
+		Action:                 "",
 		Comment:                "",
 		PausedState:            TransferState_TRANSFER_NONE,
 		ArchiveState:           ArchiveState_ARCHIVE_NONE,
@@ -317,10 +324,10 @@ func NewTransferDetails() *TransferDetails {
 		Warnings:               []string{},
 		DestInfo:               DestInfo_DEST_NONE,
 		ValidationOnly:         false,
-		// FullDestinations:       []string{},
-		PluginData:   []byte{},
-		PluginStatus: "",
-		Priority:     0,
+		PluginData:             []byte{},
+		PluginStatus:           "",
+		Priority:               0,
+		Options:                make(map[string]*anypb.Any),
 	}
 
 	return transfer
@@ -345,6 +352,7 @@ type IncompleteTransfer interface {
 	ETCDLeasesKey() string
 	ETCDActiveKey() string
 	ETCDActionKey() string
+	ETCDOptionsKey() string
 	ETCDUserKey() string
 	ETCDStartTimeKey() string
 	ETCDEndTimeKey() string

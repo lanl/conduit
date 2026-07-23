@@ -21,7 +21,10 @@ def main() -> None:
         transfer: api_pb2.TransferDetails = client.start_transfer(
             sources=["/mnt/fs_1/foo/hello.txt"],
             destination="/mnt/fs_2/bar/hello.txt",
-            action=api_pb2.RECURSIVE_COPY,
+            action="CONDUIT_COPY",
+            options={
+                "recursive": True,
+            },
         )
 
         print(f"Transfer ID: {transfer.transferID}")

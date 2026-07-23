@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Iterator
+from typing import Any, Iterator, Mapping, Optional
 
 import grpc
 import certifi
 
+from google.protobuf import any_pb2, wrappers_pb2
+from google.protobuf.message import Message
 
 from ._generated import api_pb2
 from ._generated import api_pb2_grpc
@@ -77,8 +79,9 @@ class ConduitClient:
         self,
         sources: list[str],
         destination: str,
-        action: api_pb2.Action,
+        action: str,
         user: str = "",
+        options: Optional[Mapping[str, Any]] = None,
     ) -> api_pb2.TransferDetails:
         """
         Starts a CONDUIT Transfer
@@ -92,6 +95,9 @@ class ConduitClient:
             user=user,
         )
 
+        for name, value in (options or {}).items():
+            req.options[name].CopyFrom(_pack_any(value))
+
         try:
             resp: api_pb2.TransferDetails = self._stub.StartTransfer(
                 req, timeout=self._cfg.timeout_s
@@ -104,8 +110,9 @@ class ConduitClient:
         self,
         sources: list[str],
         destination: str,
-        action: api_pb2.Action,
+        action: str,
         user: str = "",
+        options: Optional[Mapping[str, Any]] = None,
     ) -> api_pb2.TransferDetails:
         """
         Starts a validation only transfer. No data will be transfered, it will end after the transfer gets through validation
@@ -119,6 +126,9 @@ class ConduitClient:
             action=action,
             user=user,
         )
+
+        for name, value in (options or {}).items():
+            req.options[name].CopyFrom(_pack_any(value))
 
         try:
             resp: api_pb2.TransferDetails = self._stub.ValidateTransfer(
@@ -297,3 +307,38 @@ def _split_key_and_certchain(pem: bytes) -> tuple[bytes, bytes]:
     private_key = key_match.group(0) + b"\n"
     certificate_chain = b"\n".join(certs) + b"\n"
     return private_key, certificate_chain
+
+
+def _pack_any(value: Any) -> any_pb2.Any:
+    """
+    Convert a supported Python value into google.protobuf.Any.\
+    """
+
+    if isinstance(value, any_pb2.Any):
+        packed = any_pb2.Any()
+        packed.CopyFrom(value)
+        return packed
+
+    # bool must be checked before int because bool subclasses int.
+    if isinstance(value, bool):
+        message = wrappers_pb2.BoolValue(value=value)
+    elif isinstance(value, str):
+        message = wrappers_pb2.StringValue(value=value)
+    elif isinstance(value, bytes):
+        message = wrappers_pb2.BytesValue(value=value)
+    elif isinstance(value, int):
+        if not -(1 << 63) <= value < (1 << 63):
+            raise ValueError(f"Integer option value {value} does not fit in an int64")
+
+        message = wrappers_pb2.Int64Value(value=value)
+    elif isinstance(value, float):
+        message = wrappers_pb2.DoubleValue(value=value)
+    elif isinstance(value, Message):
+        # Allow callers to provide their own protobuf message.
+        message = value
+    else:
+        raise TypeError(f"Unsupported option value type: {type(value).__name__}")
+
+    packed = any_pb2.Any()
+    packed.Pack(message)
+    return packed

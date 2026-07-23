@@ -11,11 +11,13 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
+	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/fta/plugin"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
-func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action proto.Action, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) plugin.PluginErrors {
-	if action == proto.Action_MOVE || action == proto.Action_RECURSIVE_MOVE {
+func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) plugin.PluginErrors {
+	if action == actions.Action_MOVE {
 		// delete source data if this is a move
 		if pathType == proto.LeaseType_SOURCE {
 			trashPath, pErr, err := getTrashPathFromConfig(pathInfo.FSC, pathInfo.ResolvedUserPath, transferID)

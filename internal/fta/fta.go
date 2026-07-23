@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // FTAInit creates a new logger, extracts certificate information from stdin, creates an etcd manager, and retrieves the node list from the environment.
@@ -150,7 +151,7 @@ func StartPluginETCD(log *logger.ConduitLogger, c proto.SchedulerCommand, it pro
 }
 
 // CompletePluginETCD sets the related keys in etcd to signal that the plugin has ended on the FTA node
-func CompletePluginETCD(log *logger.ConduitLogger, c proto.SchedulerCommand, it proto.IncompleteTransfer, em *etcd.ETCDManager, pluginData *plugin.PluginData, destInfo proto.DestInfo) (proto.Error, error) {
+func CompletePluginETCD(log *logger.ConduitLogger, c proto.SchedulerCommand, it proto.IncompleteTransfer, em *etcd.ETCDManager, pluginData *plugin.PluginData, destInfo proto.DestInfo, pluginErrors plugin.PluginErrors) (proto.Error, error) {
 	// sometimes if conduit gets hammered with requests, it might not be able to tell etcd that the validation state was submitted before
 	// we check for it here. Therefore we retry for a bit before giving up
 	retryCount := viper.GetInt(defaults.ConfigFTAVerifyRetryCountKey)
@@ -167,7 +168,7 @@ func CompletePluginETCD(log *logger.ConduitLogger, c proto.SchedulerCommand, it 
 		return proto.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("failed to get command states for command[%s]: %v", c, err)
 	}
 
-	// try to set the validation to complete
+	// try to set the plugin to complete
 	txnCompare = []clientv3.Cmp{}
 	txnActions = []clientv3.Op{}
 	txnCompare = append(txnCompare, clientv3.Compare(clientv3.Value(etcdErrorKey), "=", proto.Error_ERROR_NONE.String()))
@@ -188,7 +189,7 @@ func CompletePluginETCD(log *logger.ConduitLogger, c proto.SchedulerCommand, it 
 			}
 		}
 
-		allLeasesJSON, err := json.Marshal(&proto.Leases{
+		allLeasesJSON, err := protojson.Marshal(&proto.Leases{
 			Source:      sourceLeases,
 			Destination: destinationLeases,
 		})
@@ -200,6 +201,28 @@ func CompletePluginETCD(log *logger.ConduitLogger, c proto.SchedulerCommand, it 
 		}
 
 		txnActions = append(txnActions, clientv3.OpPut(it.ETCDLeasesKey(), string(allLeasesJSON)))
+
+		// add warnings for a validation job. This assumes that there will not be any warnings before validation and overwrites anything existing there
+		if len(pluginErrors.Warnings) > 0 {
+			warnlist := []string{}
+			for _, w := range pluginErrors.Warnings {
+				warnlist = append(warnlist, fmt.Sprintf("%s: %s", c, w.ErrMessage.Error()))
+			}
+
+			warningsJson, err := json.Marshal(warnlist)
+			if err != nil {
+				return proto.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("transfer[%s]: failed to marshal transfer warnings[%v] for etcd: %v", it.GetTransferID(), warnlist, err)
+			}
+
+			txnActions = append(txnActions, clientv3.OpPut(it.ETCDWarningsKey(), string(warningsJson)))
+		}
+	} else {
+		if len(pluginErrors.Warnings) > 0 {
+			err := warnTransfer(log, em, it, pluginErrors.Warnings, c)
+			if err != nil {
+				log.Errorf("failed to add warnings: %v", err)
+			}
+		}
 	}
 
 	if destInfo != proto.DestInfo_DEST_NONE {

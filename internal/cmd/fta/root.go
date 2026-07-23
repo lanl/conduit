@@ -69,17 +69,7 @@ var validateCmd = &cobra.Command{
 			return
 		}
 
-		a, err := parseArgs(args)
-		if err != nil {
-			errs := errToErrs(fmt.Errorf("failed to parse args: %v", err), proto.Error_ERROR_CONDUIT_INTERNAL)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, errs, nil, proto.DestInfo_DEST_NONE)
-			if err != nil {
-				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
-			}
-			return
-		}
-
-		pluginData, destInfo, errs := fta.StartPluginValidate(log, it, em, a, nodeList)
+		pluginData, destInfo, errs := fta.StartPluginValidate(log, it, em, nodeList)
 		if len(errs.Errors) > 0 {
 			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, errs, pluginData, destInfo)
 			if err != nil {
@@ -88,7 +78,7 @@ var validateCmd = &cobra.Command{
 			return
 		}
 
-		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, pluginData, destInfo)
+		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, pluginData, destInfo, errs)
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to complete validation plugin in etcd: %v", err), pErr)
 			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, errs, pluginData, destInfo)
@@ -124,17 +114,7 @@ var setupCmd = &cobra.Command{
 			return
 		}
 
-		a, err := parseArgs(args)
-		if err != nil {
-			errs := errToErrs(fmt.Errorf("failed to parse args: %v", err), proto.Error_ERROR_CONDUIT_INTERNAL)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_SETUP, it, em, errs, nil, proto.DestInfo_DEST_NONE)
-			if err != nil {
-				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
-			}
-			return
-		}
-
-		pluginData, errs := fta.StartPluginSetup(log, it, em, a, nodeList)
+		pluginData, errs := fta.StartPluginSetup(log, it, em, nodeList)
 		if len(errs.Errors) > 0 {
 			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_SETUP, it, em, errs, nil, proto.DestInfo_DEST_NONE)
 			if err != nil {
@@ -143,7 +123,7 @@ var setupCmd = &cobra.Command{
 			return
 		}
 
-		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_SETUP, it, em, pluginData, proto.DestInfo_DEST_NONE)
+		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_SETUP, it, em, pluginData, proto.DestInfo_DEST_NONE, errs)
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to complete setup plugin in etcd: %v", err), pErr)
 			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_SETUP, it, em, errs, nil, proto.DestInfo_DEST_NONE)
@@ -179,17 +159,7 @@ var transferCmd = &cobra.Command{
 			return
 		}
 
-		a, err := parseArgs(args)
-		if err != nil {
-			errs := errToErrs(fmt.Errorf("failed to parse args: %v", err), proto.Error_ERROR_CONDUIT_INTERNAL)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, errs, nil, proto.DestInfo_DEST_NONE)
-			if err != nil {
-				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
-			}
-			return
-		}
-
-		errs := fta.StartPluginTransfer(log, it, em, a, nodeList)
+		errs := fta.StartPluginTransfer(log, it, em, nodeList)
 		if len(errs.Errors) > 0 {
 			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, errs, nil, proto.DestInfo_DEST_NONE)
 			if err != nil {
@@ -198,7 +168,7 @@ var transferCmd = &cobra.Command{
 			return
 		}
 
-		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, nil, proto.DestInfo_DEST_NONE)
+		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, nil, proto.DestInfo_DEST_NONE, errs)
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to complete transfer plugin in etcd: %v", err), pErr)
 			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, errs, nil, proto.DestInfo_DEST_NONE)
@@ -233,17 +203,7 @@ var teardownCmd = &cobra.Command{
 			return
 		}
 
-		a, err := parseArgs(args)
-		if err != nil {
-			errs := errToErrs(fmt.Errorf("failed to parse args: %v", err), proto.Error_ERROR_CONDUIT_INTERNAL)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, errs, nil, proto.DestInfo_DEST_NONE)
-			if err != nil {
-				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
-			}
-			return
-		}
-
-		errs := fta.StartPluginTeardown(log, it, em, a, nodeList)
+		errs := fta.StartPluginTeardown(log, it, em, nodeList)
 		if len(errs.Errors) > 0 {
 			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, errs, nil, proto.DestInfo_DEST_NONE)
 			if err != nil {
@@ -252,7 +212,7 @@ var teardownCmd = &cobra.Command{
 			return
 		}
 
-		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, nil, proto.DestInfo_DEST_NONE)
+		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, nil, proto.DestInfo_DEST_NONE, errs)
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to complete teardown plugin in etcd: %v", err), pErr)
 			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, errs, nil, proto.DestInfo_DEST_NONE)

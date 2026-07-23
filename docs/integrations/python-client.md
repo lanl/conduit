@@ -54,6 +54,22 @@ When defaults are computed dynamically, the typical precedence order is:
 4. Library defaults
 
 
+## Available Actions and Options
+
+The following table describes the available actions and their supported options for gRPC clients:
+
+| Action | Description | Options | Type | Required | Default |
+|--------|-------------|---------|------|----------|---------|
+| `CONDUIT_COPY` | Copy files/directories from source to destination | `recursive` | `bool` | No | `false` |
+| | | `omit-missing` | `bool` | No | `false` |
+| `CONDUIT_MOVE` | Move files/directories (deletes source after successful transfer) | `recursive` | `bool` | No | `false` |
+| | | `omit-missing` | `bool` | No | `false` |
+
+### Option Details
+
+- **`recursive`**: When `true`, copies or moves directories and their contents recursively. When `false`, only processes individual files.
+- **`omit-missing`**: When `true`, continues the transfer even if some source files are missing. When `false`, fails the transfer if any source files are missing.
+
 ## Example
 
 ```python
@@ -72,7 +88,10 @@ with ConduitClient(cfg) as client:
     transfer: api_pb2.TransferDetails = client.start_transfer(
         sources=["/mnt/fs_1/foo/hello.txt"],
         destination="/mnt/fs_2/bar/hello.txt",
-        action=api_pb2.RECURSIVE_COPY,
+        action="CONDUIT_COPY",
+        options={
+            "recursive": True,
+        },
     )
 
     print(f"Transfer ID: {transfer.transferID}")

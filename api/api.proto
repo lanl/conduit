@@ -8,7 +8,7 @@ package conduitapi;
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/empty.proto";
-
+import "google/protobuf/any.proto";
 
 service ConduitApi {
     // StartTransfer takes in a TransferRequest object and is returned a TransferDetails object with the transfer id
@@ -74,43 +74,47 @@ message CertRequest {
 
 message TransferDetails {
     string transferID = 1;
-    Action action = 2;                          // copy or move
-    repeated string source = 3;                 // list of paths of source files/directories
-    string destination = 4;                     // path of destination file/directory
-    Leases leases = 5;           // list of all source leases that are used to track conflicts
-    string user = 6;                            // moniker of user doing the transfer
-    google.protobuf.Timestamp startTime = 7;    // start time of the transfer. Set when transfer gets to setup
-    google.protobuf.Timestamp endTime = 8;      // end time of transfer after teardown/cleanup
-    google.protobuf.Timestamp createdTime = 9;  // created time of the transfer. Set when conduit gets the request
-    TransferState state = 10;                   // current status of the transfer
-    Error error = 11;                           // error status of the transfer
-    string errorMessage = 12;                   // error status details
-    string dataTransferred = 13;                // amount of data transfered (unit changes depending on amount)
-    uint32 filesTransferred = 14;               // number of files transferred
+    optional DeprecatedAction deprecatedAction= 2 [deprecated = true];
+    repeated string source = 3;                         // list of paths of source files/directories
+    string destination = 4;                             // path of destination file/directory
+    Leases leases = 5;                                  // list of all source leases that are used to track conflicts
+    string user = 6;                                    // moniker of user doing the transfer
+    google.protobuf.Timestamp startTime = 7;            // start time of the transfer. Set when transfer gets to setup
+    google.protobuf.Timestamp endTime = 8;              // end time of transfer after teardown/cleanup
+    google.protobuf.Timestamp createdTime = 9;          // created time of the transfer. Set when conduit gets the request
+    TransferState state = 10;                           // current status of the transfer
+    Error error = 11;                                   // error status of the transfer
+    string errorMessage = 12;                           // error status details
+    string dataTransferred = 13;                        // amount of data transfered (unit changes depending on amount)
+    uint32 filesTransferred = 14;                       // number of files transferred
     uint32 filesChunks = 15;                    
-    string bandwidth = 16;                      // speed of the transfer
-    uint32 directoriesTransferred = 17;         // number of directories transferred
-    SchedulerNodes schedulerNodes = 18;         // struct of the nodes the scheduler used for each stage in the transfer process
-    bool active = 19;                           // whether the transfer is still active or not. This will determine if transfers with conflicting leases should wait
-    string comment = 20;                        // comment field. Currently only used by slurm plugin
-    TransferState pausedState = 21;             // the state to pause the transfer at (only for test mode)
-    google.protobuf.Timestamp expiry = 22;      // The expiry time of the current stage of the transfer. Used to detect crashed fta jobs
-    ArchiveState archiveState = 23;             // The current status of archiving into the SQL database
-    repeated string warnings = 24;              // a json encoded list of warnings
+    string bandwidth = 16;                              // speed of the transfer
+    uint32 directoriesTransferred = 17;                 // number of directories transferred
+    SchedulerNodes schedulerNodes = 18;                 // struct of the nodes the scheduler used for each stage in the transfer process
+    bool active = 19;                                   // whether the transfer is still active or not. This will determine if transfers with conflicting leases should wait
+    string comment = 20;                                // comment field. Currently only used by slurm plugin
+    TransferState pausedState = 21;                     // the state to pause the transfer at (only for test mode)
+    google.protobuf.Timestamp expiry = 22;              // The expiry time of the current stage of the transfer. Used to detect crashed fta jobs
+    ArchiveState archiveState = 23;                     // The current status of archiving into the SQL database
+    repeated string warnings = 24;                      // a json encoded list of warnings
     DestInfo destInfo = 25;
-    bool validationOnly = 26;                   // if true the transfer will only run validation and never transfer data
-    bytes pluginData = 27;                      // data related to fta plugins
-    string pluginStatus = 28;                   // a very basic field for updating the status of the plugin. This is not used in scheduling and is only for additional information for users 
-    uint32 priority = 29;                       // priority for scheduler
+    bool validationOnly = 26;                           // if true the transfer will only run validation and never transfer data
+    bytes pluginData = 27;                              // data related to fta plugins
+    string pluginStatus = 28;                           // a very basic field for updating the status of the plugin. This is not used in scheduling and is only for additional information for users 
+    uint32 priority = 29;                               // priority for scheduler
+    string action = 30;                                 // user provided action (ex: copy or move)
+    map<string, google.protobuf.Any> options = 31;      // options defined by any plugin
 }
 
 message TransferRequest {
-    string user = 1;                // moniker of user doing the transfer. Not required if authenticated with kerberos
-    Action action = 2;              // copy or move
-    repeated string source = 3;     // list of paths of source files/directories
-    string destination = 4;         // path of destination file/directory
-    string comment = 5;             // comment field. Currently only used by slurm plugin
-    TransferState pausedState = 6;  // the state to pause the transfer at (only for test mode)
+    string user = 1;                                    // moniker of user doing the transfer. Not required if authenticated with kerberos
+    optional DeprecatedAction deprecatedAction = 2 [deprecated = true];
+    repeated string source = 3;                         // list of paths of source files/directories
+    string destination = 4;                             // path of destination file/directory
+    string comment = 5;                                 // comment field. Currently only used by slurm plugin
+    TransferState pausedState = 6;                      // the state to pause the transfer at (only for test mode)
+    string action = 7;                                  // action defined by transfer plugin
+    map<string, google.protobuf.Any> options = 8;       // options defined by any plugin
 }
 
 message PauseRequest {
@@ -144,7 +148,7 @@ enum LeaseType {
     DESTINATION = 1;
 }
 
-enum Action {
+enum DeprecatedAction {
     COPY = 0;
     MOVE = 1;
     RECURSIVE_COPY = 2;

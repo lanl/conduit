@@ -13,6 +13,8 @@ import (
 	proto "github.com/lanl/conduit/api"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -88,7 +90,14 @@ func ParseETCDTransfer(id uuid.UUID, kvs []*mvccpb.KeyValue, old *proto.Transfer
 		case string(kv.Key) == t.ETCDArchiveStateKey():
 			t.ArchiveState = proto.ArchiveState(proto.ArchiveState_value[string(kv.Value)])
 		case string(kv.Key) == t.ETCDActionKey():
-			t.Action = proto.Action(proto.Action_value[string(kv.Value)])
+			t.Action = string(kv.Value)
+		case string(kv.Key) == t.ETCDOptionsKey():
+			options := make(map[string]*anypb.Any)
+			err := json.Unmarshal(kv.Value, &options)
+			if err != nil {
+				return nil, err
+			}
+			t.Options = options
 		case string(kv.Key) == t.ETCDActiveKey():
 			b, err := strconv.ParseBool(string(kv.Value))
 			if err != nil {
@@ -121,7 +130,7 @@ func ParseETCDTransfer(id uuid.UUID, kvs []*mvccpb.KeyValue, old *proto.Transfer
 			t.DestInfo = proto.DestInfo(proto.DestInfo_value[string(kv.Value)])
 		case string(kv.Key) == t.ETCDLeasesKey():
 			leases := &proto.Leases{}
-			err := json.Unmarshal(kv.Value, leases)
+			err := protojson.Unmarshal(kv.Value, leases)
 			if err != nil {
 				return nil, err
 			}
@@ -200,12 +209,17 @@ func ConvertETCDTransfer(t *proto.TransferDetails) ([]clientv3.Op, error) {
 		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer source for etcd: %v", t.GetTransferID(), err)
 	}
 
+	options, err := json.Marshal(t.GetOptions())
+	if err != nil {
+		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer options for etcd: %v", t.GetTransferID(), err)
+	}
+
 	warningsList, err := json.Marshal(t.GetWarnings())
 	if err != nil {
 		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer warnings for etcd: %v", t.GetTransferID(), err)
 	}
 
-	leaseList, err := json.Marshal(t.GetLeases())
+	leaseList, err := protojson.Marshal(t.GetLeases())
 	if err != nil {
 		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer leases for etcd: %v", t.GetTransferID(), err)
 	}
@@ -228,7 +242,8 @@ func ConvertETCDTransfer(t *proto.TransferDetails) ([]clientv3.Op, error) {
 	ops = append(ops, clientv3.OpPut(t.ETCDEndTimeKey(), t.GetEndTime().AsTime().Format(time.RFC3339)))
 	ops = append(ops, clientv3.OpPut(t.ETCDCreatedTimeKey(), t.GetCreatedTime().AsTime().Format(time.RFC3339)))
 	ops = append(ops, clientv3.OpPut(t.ETCDErrorMessageKey(), t.GetErrorMessage()))
-	ops = append(ops, clientv3.OpPut(t.ETCDActionKey(), t.GetAction().String()))
+	ops = append(ops, clientv3.OpPut(t.ETCDActionKey(), t.GetAction()))
+	ops = append(ops, clientv3.OpPut(t.ETCDOptionsKey(), string(options)))
 	ops = append(ops, clientv3.OpPut(t.ETCDCommentKey(), t.GetComment()))
 	ops = append(ops, clientv3.OpPut(t.ETCDPausedStateKey(), t.GetPausedState().String()))
 	ops = append(ops, clientv3.OpPut(t.ETCDExpiryKey(), t.GetExpiry().AsTime().Format(time.RFC3339)))

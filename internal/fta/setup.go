@@ -13,7 +13,7 @@ import (
 	"github.com/lanl/conduit/internal/logger"
 )
 
-func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em *etcd.ETCDManager, action proto.Action, nodeList string) (pluginData *plugin.PluginData, _ plugin.PluginErrors) {
+func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em *etcd.ETCDManager, nodeList string) (pluginData *plugin.PluginData, _ plugin.PluginErrors) {
 	transferID, err := uuid.Parse(it.GetTransferID())
 	if err != nil {
 		return nil, plugin.PluginErrors{
@@ -24,12 +24,23 @@ func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em
 		}
 	}
 
+	// get action and options for transfer
+	action, options, err := em.GetActionAndOptions(it)
+	if err != nil {
+		return pluginData, plugin.PluginErrors{
+			Errors: []*plugin.FTAPathError{{
+				PErr:       proto.Error_ERROR_ETCD_CONNECTION,
+				ErrMessage: fmt.Errorf("failed to get action and options from etcd: %v", err),
+			}},
+		}
+	}
+
 	// get sources and destination for transfer
-	pluginData, pErr, err := getPluginDataFromETCD(it, em)
+	pluginData, err = em.GetPluginData(it)
 	if err != nil {
 		return nil, plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{{
-				PErr:       pErr,
+				PErr:       proto.Error_ERROR_ETCD_CONNECTION,
 				ErrMessage: fmt.Errorf("failed to get source and destination from etcd: %v", err),
 			}},
 		}
@@ -52,7 +63,7 @@ func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em
 	wg.Add(1)
 	go func(destPluginInfo *plugin.PluginPathInfo) {
 		defer wg.Done()
-		dpErrors, newDpInfo := destPluginInfo.Plugin.Setup(transferID, destPluginInfo, proto.LeaseType_DESTINATION, action, true, updater.updateTransferProgress)
+		dpErrors, newDpInfo := destPluginInfo.Plugin.Setup(transferID, destPluginInfo, proto.LeaseType_DESTINATION, action, options, true, updater.updateTransferProgress)
 		errorsLock.Lock()
 		pluginErrors.Errors = append(pluginErrors.Errors, dpErrors.Errors...)
 		pluginErrors.Warnings = append(pluginErrors.Warnings, dpErrors.Warnings...)
@@ -66,7 +77,7 @@ func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em
 		wg.Add(1)
 		go func(destsPluginInfo *plugin.PluginPathInfo) {
 			defer wg.Done()
-			dpErrors, newDpInfo := destsPluginInfo.Plugin.Setup(transferID, destsPluginInfo, proto.LeaseType_DESTINATION, action, false, updater.updateTransferProgress)
+			dpErrors, newDpInfo := destsPluginInfo.Plugin.Setup(transferID, destsPluginInfo, proto.LeaseType_DESTINATION, action, options, false, updater.updateTransferProgress)
 			errorsLock.Lock()
 			pluginErrors.Errors = append(pluginErrors.Errors, dpErrors.Errors...)
 			pluginErrors.Warnings = append(pluginErrors.Warnings, dpErrors.Warnings...)
@@ -81,7 +92,7 @@ func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em
 		wg.Add(1)
 		go func(srcPluginInfo *plugin.PluginPathInfo) {
 			defer wg.Done()
-			spErrors, newSpInfo := srcPluginInfo.Plugin.Setup(transferID, srcPluginInfo, proto.LeaseType_SOURCE, action, false, updater.updateTransferProgress)
+			spErrors, newSpInfo := srcPluginInfo.Plugin.Setup(transferID, srcPluginInfo, proto.LeaseType_SOURCE, action, options, false, updater.updateTransferProgress)
 			errorsLock.Lock()
 			pluginErrors.Errors = append(pluginErrors.Errors, spErrors.Errors...)
 			pluginErrors.Warnings = append(pluginErrors.Warnings, spErrors.Warnings...)

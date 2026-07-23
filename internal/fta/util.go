@@ -3,16 +3,12 @@
 package fta
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 
-	brotli "github.com/andybalholm/brotli"
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
@@ -64,61 +60,6 @@ func getCommandStates(command proto.SchedulerCommand) (submitted proto.Stringabl
 	}
 
 	return proto.TransferState_TRANSFER_NONE, proto.TransferState_TRANSFER_NONE, proto.ArchiveState_ARCHIVE_NONE, fmt.Errorf("failed to get submitted state for command: %v", command)
-}
-
-// getSrcAndDstFromETCD will get the source paths and destination path from etcd
-func getSrcAndDstFromETCD(t proto.IncompleteTransfer, em *etcd.ETCDManager) (sources []string, destination string, pErr proto.Error, err error) {
-	retryCount := viper.GetInt(defaults.ConfigFTAVerifyRetryCountKey)
-	sleepDur := viper.GetDuration(defaults.ConfigFTAVerifySleepDurationKey)
-
-	// get the sources
-	sources, err = em.GetSources(t)
-	if err != nil {
-		return sources, destination, proto.Error_ERROR_ETCD_CONNECTION, fmt.Errorf("failed to get transfer[%v] sources from etcd: %v", t.GetTransferID(), err)
-	}
-
-	// get the destination
-	resp, err := em.RetryGet(t.ETCDDestinationKey(), retryCount, sleepDur)
-	if err != nil {
-		return sources, destination, proto.Error_ERROR_ETCD_CONNECTION, fmt.Errorf("failed to get transfer[%v] sources from etcd: %v", t.GetTransferID(), err)
-	}
-	if len(resp.Kvs) < 1 {
-		return sources, destination, proto.Error_ERROR_ETCD_CONNECTION, fmt.Errorf("etcd didn't return any sources for transfer[%v]: %v", t.GetTransferID(), err)
-	}
-
-	destination = string(resp.Kvs[0].Value)
-
-	return sources, destination, proto.Error_ERROR_NONE, nil
-}
-
-// getPluginDataFromETCD will retrieve and format a transfers pluginData from etcd
-func getPluginDataFromETCD(t proto.IncompleteTransfer, em *etcd.ETCDManager) (*plugin.PluginData, proto.Error, error) {
-	retryCount := viper.GetInt(defaults.ConfigFTAVerifyRetryCountKey)
-	sleepDur := viper.GetDuration(defaults.ConfigFTAVerifySleepDurationKey)
-
-	// get the pluginData
-	resp, err := em.RetryGet(t.ETCDPluginDataKey(), retryCount, sleepDur)
-	if err != nil {
-		return nil, proto.Error_ERROR_ETCD_CONNECTION, fmt.Errorf("failed to get transfer[%v] pluginData from etcd: %v", t.GetTransferID(), err)
-	}
-	if len(resp.Kvs) < 1 {
-		return nil, proto.Error_ERROR_ETCD_CONNECTION, fmt.Errorf("etcd didn't return any values for pluginData for transfer[%v]: %v", t.GetTransferID(), err)
-	}
-
-	r := brotli.NewReader(bytes.NewReader([]byte(string(resp.Kvs[0].Value))))
-	var decodedOutput bytes.Buffer
-	_, err = io.Copy(&decodedOutput, r)
-	if err != nil {
-		return nil, proto.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("failed to decode brotli pluginData for transfer[%v]: %v", t.GetTransferID(), err)
-	}
-
-	pluginData := &plugin.PluginData{}
-	err = json.Unmarshal(decodedOutput.Bytes(), pluginData)
-	if err != nil {
-		return nil, proto.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("failed to unmarshal pluginData for transfer[%v]: %v", t.GetTransferID(), err)
-	}
-
-	return pluginData, proto.Error_ERROR_NONE, nil
 }
 
 // getSrcAndDstValidationPlugins will get the validatino plugin for all sources and destination and verify the resolved paths still correlate to the plugin

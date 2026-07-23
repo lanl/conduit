@@ -2,6 +2,7 @@ import datetime
 
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 from google.protobuf import empty_pb2 as _empty_pb2
+from google.protobuf import any_pb2 as _any_pb2
 from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
@@ -21,12 +22,12 @@ class LeaseType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     SOURCE: _ClassVar[LeaseType]
     DESTINATION: _ClassVar[LeaseType]
 
-class Action(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+class DeprecatedAction(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
-    COPY: _ClassVar[Action]
-    MOVE: _ClassVar[Action]
-    RECURSIVE_COPY: _ClassVar[Action]
-    RECURSIVE_MOVE: _ClassVar[Action]
+    COPY: _ClassVar[DeprecatedAction]
+    MOVE: _ClassVar[DeprecatedAction]
+    RECURSIVE_COPY: _ClassVar[DeprecatedAction]
+    RECURSIVE_MOVE: _ClassVar[DeprecatedAction]
 
 class SchedulerCommand(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -161,10 +162,10 @@ AND: QueryOperation
 OR: QueryOperation
 SOURCE: LeaseType
 DESTINATION: LeaseType
-COPY: Action
-MOVE: Action
-RECURSIVE_COPY: Action
-RECURSIVE_MOVE: Action
+COPY: DeprecatedAction
+MOVE: DeprecatedAction
+RECURSIVE_COPY: DeprecatedAction
+RECURSIVE_MOVE: DeprecatedAction
 NONE: SchedulerCommand
 VALIDATION: SchedulerCommand
 SETUP: SchedulerCommand
@@ -327,9 +328,16 @@ class CertRequest(_message.Message):
     def __init__(self, user: _Optional[str] = ...) -> None: ...
 
 class TransferDetails(_message.Message):
-    __slots__ = ("transferID", "action", "source", "destination", "leases", "user", "startTime", "endTime", "createdTime", "state", "error", "errorMessage", "dataTransferred", "filesTransferred", "filesChunks", "bandwidth", "directoriesTransferred", "schedulerNodes", "active", "comment", "pausedState", "expiry", "archiveState", "warnings", "destInfo", "validationOnly", "pluginData", "pluginStatus", "priority")
+    __slots__ = ("transferID", "deprecatedAction", "source", "destination", "leases", "user", "startTime", "endTime", "createdTime", "state", "error", "errorMessage", "dataTransferred", "filesTransferred", "filesChunks", "bandwidth", "directoriesTransferred", "schedulerNodes", "active", "comment", "pausedState", "expiry", "archiveState", "warnings", "destInfo", "validationOnly", "pluginData", "pluginStatus", "priority", "action", "options")
+    class OptionsEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: _any_pb2.Any
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[_any_pb2.Any, _Mapping]] = ...) -> None: ...
     TRANSFERID_FIELD_NUMBER: _ClassVar[int]
-    ACTION_FIELD_NUMBER: _ClassVar[int]
+    DEPRECATEDACTION_FIELD_NUMBER: _ClassVar[int]
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     DESTINATION_FIELD_NUMBER: _ClassVar[int]
     LEASES_FIELD_NUMBER: _ClassVar[int]
@@ -357,8 +365,10 @@ class TransferDetails(_message.Message):
     PLUGINDATA_FIELD_NUMBER: _ClassVar[int]
     PLUGINSTATUS_FIELD_NUMBER: _ClassVar[int]
     PRIORITY_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    OPTIONS_FIELD_NUMBER: _ClassVar[int]
     transferID: str
-    action: Action
+    deprecatedAction: DeprecatedAction
     source: _containers.RepeatedScalarFieldContainer[str]
     destination: str
     leases: Leases
@@ -386,23 +396,36 @@ class TransferDetails(_message.Message):
     pluginData: bytes
     pluginStatus: str
     priority: int
-    def __init__(self, transferID: _Optional[str] = ..., action: _Optional[_Union[Action, str]] = ..., source: _Optional[_Iterable[str]] = ..., destination: _Optional[str] = ..., leases: _Optional[_Union[Leases, _Mapping]] = ..., user: _Optional[str] = ..., startTime: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., endTime: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., createdTime: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., state: _Optional[_Union[TransferState, str]] = ..., error: _Optional[_Union[Error, str]] = ..., errorMessage: _Optional[str] = ..., dataTransferred: _Optional[str] = ..., filesTransferred: _Optional[int] = ..., filesChunks: _Optional[int] = ..., bandwidth: _Optional[str] = ..., directoriesTransferred: _Optional[int] = ..., schedulerNodes: _Optional[_Union[SchedulerNodes, _Mapping]] = ..., active: bool = ..., comment: _Optional[str] = ..., pausedState: _Optional[_Union[TransferState, str]] = ..., expiry: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., archiveState: _Optional[_Union[ArchiveState, str]] = ..., warnings: _Optional[_Iterable[str]] = ..., destInfo: _Optional[_Union[DestInfo, str]] = ..., validationOnly: bool = ..., pluginData: _Optional[bytes] = ..., pluginStatus: _Optional[str] = ..., priority: _Optional[int] = ...) -> None: ...
+    action: str
+    options: _containers.MessageMap[str, _any_pb2.Any]
+    def __init__(self, transferID: _Optional[str] = ..., deprecatedAction: _Optional[_Union[DeprecatedAction, str]] = ..., source: _Optional[_Iterable[str]] = ..., destination: _Optional[str] = ..., leases: _Optional[_Union[Leases, _Mapping]] = ..., user: _Optional[str] = ..., startTime: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., endTime: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., createdTime: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., state: _Optional[_Union[TransferState, str]] = ..., error: _Optional[_Union[Error, str]] = ..., errorMessage: _Optional[str] = ..., dataTransferred: _Optional[str] = ..., filesTransferred: _Optional[int] = ..., filesChunks: _Optional[int] = ..., bandwidth: _Optional[str] = ..., directoriesTransferred: _Optional[int] = ..., schedulerNodes: _Optional[_Union[SchedulerNodes, _Mapping]] = ..., active: bool = ..., comment: _Optional[str] = ..., pausedState: _Optional[_Union[TransferState, str]] = ..., expiry: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., archiveState: _Optional[_Union[ArchiveState, str]] = ..., warnings: _Optional[_Iterable[str]] = ..., destInfo: _Optional[_Union[DestInfo, str]] = ..., validationOnly: bool = ..., pluginData: _Optional[bytes] = ..., pluginStatus: _Optional[str] = ..., priority: _Optional[int] = ..., action: _Optional[str] = ..., options: _Optional[_Mapping[str, _any_pb2.Any]] = ...) -> None: ...
 
 class TransferRequest(_message.Message):
-    __slots__ = ("user", "action", "source", "destination", "comment", "pausedState")
+    __slots__ = ("user", "deprecatedAction", "source", "destination", "comment", "pausedState", "action", "options")
+    class OptionsEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: _any_pb2.Any
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[_any_pb2.Any, _Mapping]] = ...) -> None: ...
     USER_FIELD_NUMBER: _ClassVar[int]
-    ACTION_FIELD_NUMBER: _ClassVar[int]
+    DEPRECATEDACTION_FIELD_NUMBER: _ClassVar[int]
     SOURCE_FIELD_NUMBER: _ClassVar[int]
     DESTINATION_FIELD_NUMBER: _ClassVar[int]
     COMMENT_FIELD_NUMBER: _ClassVar[int]
     PAUSEDSTATE_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    OPTIONS_FIELD_NUMBER: _ClassVar[int]
     user: str
-    action: Action
+    deprecatedAction: DeprecatedAction
     source: _containers.RepeatedScalarFieldContainer[str]
     destination: str
     comment: str
     pausedState: TransferState
-    def __init__(self, user: _Optional[str] = ..., action: _Optional[_Union[Action, str]] = ..., source: _Optional[_Iterable[str]] = ..., destination: _Optional[str] = ..., comment: _Optional[str] = ..., pausedState: _Optional[_Union[TransferState, str]] = ...) -> None: ...
+    action: str
+    options: _containers.MessageMap[str, _any_pb2.Any]
+    def __init__(self, user: _Optional[str] = ..., deprecatedAction: _Optional[_Union[DeprecatedAction, str]] = ..., source: _Optional[_Iterable[str]] = ..., destination: _Optional[str] = ..., comment: _Optional[str] = ..., pausedState: _Optional[_Union[TransferState, str]] = ..., action: _Optional[str] = ..., options: _Optional[_Mapping[str, _any_pb2.Any]] = ...) -> None: ...
 
 class PauseRequest(_message.Message):
     __slots__ = ("transferID", "pausedState")

@@ -17,11 +17,14 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
+	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action proto.Action, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
+func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
 	updateTransferProgress(proto.ETCDStatusDetails{
 		PluginStatus: "starting pftool",
 	})
@@ -72,8 +75,16 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	args = append(args, "-s")
 	// args = append(args, "--debug")
 
-	if action == proto.Action_RECURSIVE_COPY || action == proto.Action_RECURSIVE_MOVE {
-		args = append(args, "-R")
+	// add recursive flag if it was provided by the user
+	if _, ok := options[actions.RecursiveFlag]; ok {
+		var rec wrapperspb.BoolValue
+		if err := options[actions.RecursiveFlag].UnmarshalTo(&rec); err != nil {
+			p.log.Errorf("failed to unmarshal recursive flag: %v", err)
+		}
+
+		if rec.GetValue() {
+			args = append(args, "-R")
+		}
 	}
 
 	argTest := strings.Join(args, " ")
@@ -341,19 +352,24 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 
 	// check if pftool printed a NOMOVE message
 	if detectedNoMovePath != "" {
-		err := p.addETCDNoMove(detectedNoMovePath, action, updateAction)
-		if err != nil {
-			if errorOccurred.ErrMessage == nil {
-				errorOccurred = &plugin.FTAPathError{PErr: proto.Error_ERROR_ETCD_CONNECTION, ErrMessage: fmt.Errorf("failed to change transfer action: %v", err)}
+		// sometimes pftool will send a message to conduit indicating that it should do a copy instead of a move.
+		if action == actions.Action_MOVE {
+			err := updateAction(action, actions.Action_COPY)
+			if err != nil {
+				if errorOccurred.ErrMessage == nil {
+					errorOccurred = &plugin.FTAPathError{PErr: proto.Error_ERROR_ETCD_CONNECTION, ErrMessage: fmt.Errorf("failed to update transfer action to %v: %v", actions.Action_COPY, err)}
+				} else {
+					warnings = append(warnings, &plugin.FTAPathError{
+						ErrMessage: fmt.Errorf("detected write protected children[%v] but failed to update transfer action to copy: %v", detectedNoMovePath, err),
+					})
+				}
 			} else {
 				warnings = append(warnings, &plugin.FTAPathError{
-					ErrMessage: fmt.Errorf("detected write protected children[%v] and failed to change transfer action to copy: %v", detectedNoMovePath, err),
+					ErrMessage: fmt.Errorf("detected write protected children[%v]. changed transfer action to COPY", detectedNoMovePath),
 				})
 			}
 		} else {
-			warnings = append(warnings, &plugin.FTAPathError{
-				ErrMessage: fmt.Errorf("detected write protected children[%v]. changed transfer action to COPY", detectedNoMovePath),
-			})
+			p.log.Warnf("ignoring NOMOVE message because we are in action[%v]: %v", action, detectedNoMovePath)
 		}
 	}
 
@@ -386,25 +402,4 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	}
 
 	return pluginErrors
-}
-
-// sometimes pftool will send a message to conduit indicating that it should do a copy instead of a move.
-func (p *PftoolPlugin) addETCDNoMove(path string, currentAction proto.Action, updateAction plugin.UpdateAction) error {
-	var newAction proto.Action
-	switch currentAction {
-	case proto.Action_MOVE:
-		newAction = proto.Action_COPY
-	case proto.Action_RECURSIVE_MOVE:
-		newAction = proto.Action_RECURSIVE_COPY
-	default:
-		p.log.Warnf("ignoring NOMOVE message because we are in action[%v]: %v", currentAction, path)
-		return nil
-	}
-
-	err := updateAction(currentAction, newAction)
-	if err != nil {
-		return fmt.Errorf("failed to update action %v -> %v: %v", currentAction, newAction, err)
-	}
-
-	return nil
 }

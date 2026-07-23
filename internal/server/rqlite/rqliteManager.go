@@ -19,6 +19,7 @@ import (
 	"github.com/lanl/conduit/internal/logger"
 	"github.com/lanl/conduit/internal/server/rqlite/util"
 	"google.golang.org/protobuf/encoding/protojson"
+	_ "google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 const (
