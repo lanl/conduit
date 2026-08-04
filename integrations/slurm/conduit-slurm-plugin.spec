@@ -1,6 +1,6 @@
 Name:           conduit-slurm-plugin
-Version:        0.1.0
-Release:        2%{?dist}
+Version:        2.0.1
+Release:        1%{?dist}
 Summary:        Conduit Slurm burst buffer Lua plugin with conduit-cli
 License:        MIT
 URL:            https://github.com/lanl/conduit
@@ -44,6 +44,12 @@ install -Dpm 0644 burst_buffer.conf %{buildroot}%{_sysconfdir}/conduit/burst_buf
 %config %{_sysconfdir}/conduit/burst_buffer.conf
 
 %changelog
+* Tue Aug 04 2026 Kevin Pelzel <kpelzel@lanl.gov> - 2.0.1-1
+- Update default config paths
+- Rename CONDUIT_CMD to CONDUIT_CLI
+- Support working dir option
+- Remove --skip-stat option
+- Sync version number with conduit release
 * Mon May 04 2026 Kevin Pelzel <kpelzel@lanl.gov> - 0.1.0-2
 - Install to /etc/conduit instead of /etc/slurm
 * Tue Dec 02 2025 Kevin Pelzel <kpelzel@lanl.gov> - 0.1.0-1
