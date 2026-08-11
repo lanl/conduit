@@ -194,13 +194,13 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 		log.Fatalf("failed to create cert manager: %v", err)
 	}
 
-	log.Debug("getting etcd client tls cert")
+	log.Info("getting etcd client tls cert")
 	etcdTLSCert, err := cm.InternalCertManager.GetETCDClientTLSCert()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tls cert for etcd client: %v", err)
 	}
 
-	log.Debug("creating etcd cert pool")
+	log.Info("creating etcd cert pool")
 	certPool, err := cm.GetCertPool(cert.INTERNAL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cert pool for server cert: %v", err)
@@ -213,7 +213,7 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 
 	em := etcd.NewETCDManager(log, etcdTLSCert, certPool, endpoints)
 
-	log.Debug("getting rqlite client tls cert")
+	log.Info("getting rqlite client tls cert")
 	rqliteTLSCert, err := cm.InternalCertManager.GetRqliteClientTLSCert()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tls cert for rqlite client: %v", err)
@@ -365,11 +365,11 @@ func (s *ConduitServer) StartConduitServer(clearEtcd bool) error {
 		}
 	}
 	s.log.Debugf("etcd status: %+v", status)
-	s.log.Debugf("etcd compact revision: %+v", cr)
+	s.log.Infof("etcd compact revision: %+v", cr)
 
 	if status.Header.GetRevision() != cr {
 		if clearEtcd {
-			s.log.Debug("Clearing ETCD!")
+			s.log.Warn("Clearing ETCD!")
 			// delete transfer and lease areas in etcd
 			// only for debugging
 			_, err := s.em.DeletePrefix(proto.TransferPrefix)
@@ -388,12 +388,12 @@ func (s *ConduitServer) StartConduitServer(clearEtcd bool) error {
 				return fmt.Errorf("failed to compact etcd: %v", err)
 			}
 		} else {
-			transfers, err := s.em.GetAllTransfers(cr)
+			transfers, err := s.em.GetAllTransfers(cr, status.Header.GetRevision())
 			if err != nil {
 				return fmt.Errorf("failed to get all existing transfers from etcd: %v", err)
 			}
 
-			s.log.Debugf("found %v transfers already in etcd", len(transfers))
+			s.log.Info("found %v transfers already in etcd", len(transfers))
 
 			// add transfers to transfers
 			s.tMutex.Lock()
@@ -414,7 +414,7 @@ func (s *ConduitServer) StartConduitServer(clearEtcd bool) error {
 			s.tMutex.Unlock()
 		}
 	} else {
-		s.log.Debug("etcd current revision is the same as the compact revision")
+		s.log.Info("etcd current revision is the same as the compact revision")
 	}
 
 	// have etcd mangager start watching the transfer and lease prefixes
@@ -464,9 +464,6 @@ func (s *ConduitServer) StartConduitServer(clearEtcd bool) error {
 			log.Fatalf("failed to start transfer worker: %v", err)
 		}
 	}
-
-	// check if any transfers are stuck and need to be triggered again
-	go s.rePutTransfers()
 
 	// check if any transfers in etcd need to be archived
 	go s.archiveTransfers()
@@ -538,26 +535,6 @@ func (s *ConduitServer) archiveTransfers() {
 		}
 	}
 	s.tMutex.RUnlock()
-}
-
-// rePutTransfers goes through the conduit server transfers and re-puts them to etcd to ensure that any necessary watches are triggered
-func (s *ConduitServer) rePutTransfers() {
-	s.tMutex.RLock()
-	defer s.tMutex.RUnlock()
-
-	for _, t := range s.transfers {
-		comparisons := []clientv3.Cmp{}
-		actions := []clientv3.Op{}
-		comparisons = append(comparisons, clientv3.Compare(clientv3.Value(t.ETCDStateKey()), "=", t.GetState().String()))
-		actions = append(actions, clientv3.OpPut(t.ETCDStateKey(), t.GetState().String()))
-
-		resp, err := s.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
-		if err != nil || !resp.Succeeded {
-			s.log.Errorf("failed to set transfer[%s] state to current state: %s", t.GetTransferID(), err)
-		} else {
-			s.log.Infof("successfully set transfer[%s] state to its current state", t.GetTransferID())
-		}
-	}
 }
 
 func (s *ConduitServer) cacheTransfers(successChan chan bool) {
@@ -920,8 +897,6 @@ func (s *ConduitServer) resumeConduit() error {
 			return fmt.Errorf("failed to start transfer worker: %v", err)
 		}
 	}
-
-	s.rePutTransfers()
 
 	s.archiveTransfers()
 

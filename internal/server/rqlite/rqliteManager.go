@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -93,6 +94,14 @@ func (rm *RqliteManager) AddTransfer(td *proto.TransferDetails) error {
 	// send sql to rqlite
 	_, err = rm.sendRequest(util.PathExecute, sql)
 	if err != nil {
+		// A previous archive attempt may have successfully written the
+		// transfer to rqlite but died before removing it from etcd.
+		// Treat an existing transfer as a successful archive.
+		if strings.Contains(err.Error(), "UNIQUE constraint failed: conduit.transfer_id") {
+			rm.log.Warnf("transfer[%s] already exists in rqlite; treating archive as successful", td.GetTransferID())
+			return nil
+		}
+
 		return fmt.Errorf("failed to add transfer to rqlite: %v", err)
 	}
 

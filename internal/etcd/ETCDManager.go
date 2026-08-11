@@ -407,13 +407,13 @@ func (em *ETCDManager) GetCreatedTime(it proto.IncompleteTransfer) (*timestamppb
 }
 
 // GetAllTransfers will get all transfers in etcd
-func (em *ETCDManager) GetAllTransfers(cRev int64) (map[string]*proto.TransferDetails, error) {
-	em.log.Debugf("Retrieving all existing transfers in etcd...")
-	if cRev == 0 {
-		em.log.Debugf("cannot use 0 as a prefix revision, using 1 instead")
-		cRev = 1
+func (em *ETCDManager) GetAllTransfers(compactRev int64, currentRev int64) (map[string]*proto.TransferDetails, error) {
+	em.log.Infof("Retrieving all existing transfers in etcd...")
+	if compactRev == 0 {
+		em.log.Warn("cannot use 0 as a prefix revision, using 1 instead")
+		compactRev = 1
 	}
-	wc, cancel := em.GetWatchChannelPrefix(proto.TransferPrefix, cRev)
+	wc, cancel := em.GetWatchChannelPrefix(proto.TransferPrefix, compactRev)
 	events := []*clientv3.Event{}
 watchChannelLoop:
 	for {
@@ -422,12 +422,12 @@ watchChannelLoop:
 			for _, e := range wresp.Events {
 				events = append(events, e)
 				// em.log.Debugf("%v %v", e.Kv.CreateRevision, e.Kv.ModRevision)
-				if e.Kv.ModRevision == wresp.Header.Revision {
+				if e.Kv.ModRevision == currentRev {
 					em.log.Debugf("found the last key! %v %v %v", e.Kv.CreateRevision, e.Kv.ModRevision, string(e.Kv.Key))
 					break watchChannelLoop
 				}
-				if e.Kv.ModRevision > wresp.Header.Revision {
-					em.log.Debugf("found newer key! %v %v %v %v", e.Kv.CreateRevision, e.Kv.ModRevision, wresp.Header.Revision, string(e.Kv.Key))
+				if e.Kv.ModRevision > currentRev {
+					em.log.Debugf("found newer key! %v %v %v %v", e.Kv.CreateRevision, e.Kv.ModRevision, currentRev, string(e.Kv.Key))
 					break watchChannelLoop
 				}
 			}
@@ -438,8 +438,8 @@ watchChannelLoop:
 	}
 	cancel()
 
-	em.log.Debugf("found %v events in etcd", len(events))
-	em.log.Debugf("converting all etcd events into transfers...")
+	em.log.Infof("found %v events in etcd", len(events))
+	em.log.Infof("converting all etcd events into transfers...")
 
 	transfers, err := ParseETCDTransfers(events)
 	if err != nil {

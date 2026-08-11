@@ -65,18 +65,32 @@ func NewTransferWorker(log *logger.ConduitLogger, cm *cert.CertManager, em *etcd
 func (tw *TransferWorker) StartTransferWorker() error {
 	// start watching for new transfers to appear
 	successChan := make(chan bool)
+	startChan := make(chan int64)
 	stopChan := make(chan bool)
-	go tw.watchTransfers(successChan, stopChan)
+	go tw.watchTransfers(successChan, startChan, stopChan)
 	<-successChan
-	tw.log.Infof("Started!")
 
 	tw.stopWatchChan = stopChan
+
+	// check for any transfers that should've already been watched
+	snapshotRev, err := tw.checkCurrentTransfers()
+	if err != nil {
+		tw.sMutex.Lock()
+		tw.state = proto.ServerState_SERVER_STOPPED
+		tw.sMutex.Unlock()
+		return fmt.Errorf("failed to start transfer worker: %v", err)
+	}
+
+	startChan <- snapshotRev
 
 	tw.sMutex.Lock()
 	tw.state = proto.ServerState_SERVER_RUNNING
 	tw.sMutex.Unlock()
 
+	tw.log.Infof("Started!")
+
 	return nil
+
 }
 
 func (tw *TransferWorker) StopTransferWorker() error {
@@ -137,6 +151,29 @@ func (tw *TransferWorker) StopTransferWorker() error {
 	return nil
 }
 
+// checkCurrentTransfers, checks to see if any transfers already in etcd need to be watched
+func (tw *TransferWorker) checkCurrentTransfers() (int64, error) {
+	// get all transfers in etcd to see if they need to have work done
+	resp, err := tw.em.GetPrefix(proto.TransferPrefix)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get all transfers from etcd: %v", err)
+	}
+
+	// convert kvs to events
+	evs := make([]*clientv3.Event, 0, len(resp.Kvs))
+
+	for _, kv := range resp.Kvs {
+		evs = append(evs, &clientv3.Event{
+			Type: mvccpb.PUT,
+			Kv:   kv,
+		})
+	}
+
+	tw.handleTransferEvents(evs)
+
+	return resp.Header.Revision, nil
+}
+
 // DrainTransferWorker will make the transfer worker continue transfers but not progress new ones
 func (tw *TransferWorker) DrainTransferWorker() error {
 	// check that the transfer worker is in a running state
@@ -164,12 +201,15 @@ func (tw *TransferWorker) DrainTransferWorker() error {
 	return nil
 }
 
-func (tw *TransferWorker) watchTransfers(successChan chan bool, stopChan chan bool) {
+func (tw *TransferWorker) watchTransfers(successChan chan bool, startChan chan int64, stopChan chan bool) {
 	wc := tw.em.SubscribeToTransfers(tw.id)
-	successChan <- true
-
 	defer tw.em.UnsubscribeFromTransfers(tw.id)
 
+	successChan <- true
+
+	pending := []clientv3.WatchResponse{}
+
+	// Drain the subscription while startup snapshot is built.
 	for {
 		select {
 		case wresp, ok := <-wc:
@@ -177,10 +217,51 @@ func (tw *TransferWorker) watchTransfers(successChan chan bool, stopChan chan bo
 				tw.log.Errorf("transfer watch channel closed unexpectedly")
 				return
 			}
-			go tw.handleTransferEvents(wresp.Events)
-			if wresp.Canceled {
-				tw.log.Errorf("received cancel message from watch stream: %+v", wresp)
+
+			pending = append(pending, wresp)
+
+		case snapshotRev := <-startChan:
+			// Snapshot contains everything through snapshotRev.
+			// Only replay events that happened after it.
+			for _, wresp := range pending {
+				evs := []*clientv3.Event{}
+
+				for _, ev := range wresp.Events {
+					if ev.Kv.ModRevision > snapshotRev {
+						evs = append(evs, ev)
+					}
+				}
+
+				if len(evs) > 0 {
+					go tw.handleTransferEvents(evs)
+				}
 			}
+
+			goto running
+
+		case <-stopChan:
+			return
+		}
+	}
+
+running:
+	for {
+		select {
+		case wresp, ok := <-wc:
+			if !ok {
+				tw.log.Errorf("transfer watch channel closed unexpectedly")
+				return
+			}
+
+			go tw.handleTransferEvents(wresp.Events)
+
+			if wresp.Canceled {
+				tw.log.Errorf(
+					"received cancel message from watch stream: %+v",
+					wresp,
+				)
+			}
+
 		case <-stopChan:
 			tw.log.Infof("stopped watching transfer events")
 			return

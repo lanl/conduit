@@ -30,6 +30,9 @@ func NewUpdater(log *logger.ConduitLogger, em *etcd.ETCDManager, transfer condui
 	esd, err := em.GetStatusDetails(transfer)
 	if err != nil {
 		log.Errorf("updater failed to get initial status details from etcd")
+
+		// set default values
+		esd = &conduitproto.ETCDStatusDetails{}
 	}
 
 	return &Updater{

@@ -169,7 +169,7 @@ func (w *Watchdog) StopWatchdog() error {
 	for _, tid := range tids {
 		it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: tid.String()})
 
-		w.stopWatchingTransfer(it)
+		w.stopWatchingTransfer(it, "", "")
 	}
 
 	w.log.Info("stopped watching all transfers")
@@ -215,7 +215,7 @@ func (w *Watchdog) handleWatchEvents(evs []*clientv3.Event) {
 		if ev.Type == mvccpb.DELETE {
 			switch string(ev.Kv.Key) {
 			case it.ETCDArchiveStateKey():
-				w.stopWatchingTransfer(it)
+				w.stopWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
 			}
 		} else if ev.Type == mvccpb.PUT {
 			switch string(ev.Kv.Key) {
@@ -230,21 +230,37 @@ func (w *Watchdog) handleWatchEvents(evs []*clientv3.Event) {
 					go w.archiveTransfer(it, eventID)
 					fallthrough
 				case proto.ArchiveState_ARCHIVE_SUBMIT.String():
-					w.startWatchingTransfer(it)
+					w.startWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
 				case proto.ArchiveState_ARCHIVE_COMPLETE.String():
 					fallthrough
 				case proto.ArchiveState_ARCHIVE_ERROR.String():
-					w.stopWatchingTransfer(it)
+					w.stopWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
 				}
 			case it.ETCDPausedStateKey():
 				fallthrough
 			case it.ETCDStateKey():
 				switch string(ev.Kv.Value) {
 				case proto.TransferState_TRANSFER_ERROR.String():
-					fallthrough
+					w.stopWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
 				case proto.TransferState_TRANSFER_FINALIZED.String():
-					// stop watching
-					w.stopWatchingTransfer(it)
+					// TRANSFER_FINALIZED does not necessarily mean the watchdog is done.
+					// Archiving may still be in progress and may require lease recovery.
+					t, _, err := w.em.GetTransfer(id)
+					if err != nil {
+						w.log.Errorf("failed to get transfer[%s] while handling finalized state: %v", it.GetTransferID(), err)
+
+						// Important: don't stop an existing watcher when we don't know
+						// whether archive recovery is still required.
+						break
+					}
+
+					switch t.GetArchiveState() {
+					case proto.ArchiveState_ARCHIVE_READY, proto.ArchiveState_ARCHIVE_SUBMIT:
+						w.log.Debugf("transfer[%s] is finalized but archive is still active [%s]; continuing watchdog", it.GetTransferID(), t.GetArchiveState())
+						w.startWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
+					default:
+						w.stopWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
+					}
 				case proto.TransferState_TRANSFER_NONE.String():
 					fallthrough
 				case proto.TransferState_TRANSFER_INIT.String():
@@ -287,7 +303,7 @@ func (w *Watchdog) handleWatchEvents(evs []*clientv3.Event) {
 					fallthrough
 				case proto.TransferState_TRANSFER_DATA_TRANSFERRING.String():
 					// start watching
-					w.startWatchingTransfer(it)
+					w.startWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
 				default:
 					w.log.Errorf("received unknown transfer[%s] state: %v=%v", it.GetTransferID(), string(ev.Kv.Key), string(ev.Kv.Value))
 				}
@@ -297,7 +313,7 @@ func (w *Watchdog) handleWatchEvents(evs []*clientv3.Event) {
 }
 
 // startWatchingLease gets called when a state matches when we should start watching the expiry of that lease
-func (w *Watchdog) startWatchingTransfer(it proto.IncompleteTransfer) {
+func (w *Watchdog) startWatchingTransfer(it proto.IncompleteTransfer, key string, value string) {
 	// get transfer id
 	id, err := uuid.Parse(it.GetTransferID())
 	if err != nil {
@@ -312,7 +328,7 @@ func (w *Watchdog) startWatchingTransfer(it proto.IncompleteTransfer) {
 		w.transfers[id] = cancel
 		w.tMutex.Unlock()
 		// start watching this lease
-		w.log.Debugf("starting to monitor transfer[%s]", it.GetTransferID())
+		w.log.Debugf("starting to monitor transfer[%s] %s = %s", it.GetTransferID(), key, value)
 		go w.monitorTransferExpiry(it, ctx)
 	} else {
 		w.log.Debugf("transfer[%s] is already being monitored", it.GetTransferID())
@@ -321,7 +337,7 @@ func (w *Watchdog) startWatchingTransfer(it proto.IncompleteTransfer) {
 }
 
 // stopWatchingLease gets called when a state matches when we should stop watching the expiry of that lease
-func (w *Watchdog) stopWatchingTransfer(it proto.IncompleteTransfer) {
+func (w *Watchdog) stopWatchingTransfer(it proto.IncompleteTransfer, key string, value string) {
 	// get transfer id
 	id, err := uuid.Parse(it.GetTransferID())
 	if err != nil {
@@ -334,7 +350,7 @@ func (w *Watchdog) stopWatchingTransfer(it proto.IncompleteTransfer) {
 	if cancel, ok := w.transfers[id]; ok {
 		cancel()
 		delete(w.transfers, id)
-		w.log.Debugf("stopping monitoring transfer[%s]", it.GetTransferID())
+		w.log.Debugf("stopping monitoring transfer[%s] %s = %s", it.GetTransferID(), key, value)
 	}
 	w.tMutex.Unlock()
 }
@@ -382,7 +398,7 @@ monitorLoop:
 						if tpState == tState {
 							// this lease is paused at the state it's supposed to be in. Don't kill
 							w.log.Debugf("transfer[%s] is in a paused state. removing from watchdog while paused.", it.GetTransferID())
-							w.stopWatchingTransfer(it)
+							w.stopWatchingTransfer(it, "PAUSE", tState.String())
 							break monitorLoop
 						}
 					}
@@ -406,6 +422,7 @@ monitorLoop:
 						w.log.Errorf("failed to get transfer[%s] from etcd: %v", it.GetTransferID(), err)
 					} else {
 						w.log.Debugf("transfer[%s] state: %s", it.GetTransferID(), t.GetState())
+						w.log.Debugf("transfer[%s] archive: %s", it.GetTransferID(), t.GetArchiveState())
 						w.log.Debugf("transfer[%s] expiry: %s", it.GetTransferID(), t.GetExpiry().AsTime().Format(time.RFC3339))
 
 						// check if the transfer expired in a state that we can recover from
@@ -415,6 +432,14 @@ monitorLoop:
 						case t.GetState() == proto.TransferState_TRANSFER_WAITING_FOR_LEASE:
 							// the transfer expired while waiting for lease. Push the state back to validation complete
 							rollbackErr = w.em.RollbackState(t, proto.TransferState_TRANSFER_WAITING_FOR_LEASE, proto.TransferState_TRANSFER_VALIDATION_COMPLETE, etcd.Transfer, &expiryTime)
+							if rollbackErr != nil {
+								w.log.Error(rollbackErr)
+							} else {
+								continue monitorLoop
+							}
+						case t.GetArchiveState() == proto.ArchiveState_ARCHIVE_SUBMIT:
+							// the transfer expired while submitting to rqlite. Push the state back to archive ready
+							rollbackErr = w.em.RollbackState(t, proto.ArchiveState_ARCHIVE_SUBMIT, proto.ArchiveState_ARCHIVE_READY, etcd.Archive, &expiryTime)
 							if rollbackErr != nil {
 								w.log.Error(rollbackErr)
 							} else {
@@ -496,7 +521,7 @@ func (w *Watchdog) compactETCD() error {
 
 	curRev, err := w.em.CompactRevision(oRev)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to compact to oldest safe rev[%v] cur[%v]: %v", oRev, curRev, err)
 	}
 
 	w.log.Infof("successfully compacted etcd to revision: %v. current revision: %v", oRev, curRev)
