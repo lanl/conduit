@@ -256,10 +256,7 @@ running:
 			go tw.handleTransferEvents(wresp.Events)
 
 			if wresp.Canceled {
-				tw.log.Errorf(
-					"received cancel message from watch stream: %+v",
-					wresp,
-				)
+				tw.log.Errorf("received cancel message from watch stream: %+v", wresp)
 			}
 
 		case <-stopChan:
