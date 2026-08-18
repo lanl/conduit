@@ -4,6 +4,7 @@ package fta
 
 import (
 	"github.com/lanl/conduit/internal/fta/plugin"
+	"github.com/lanl/conduit/internal/fta/plugins/archive"
 	"github.com/lanl/conduit/internal/fta/plugins/marchive"
 	"github.com/lanl/conduit/internal/fta/plugins/pftool"
 	"github.com/lanl/conduit/internal/fta/plugins/posix"
@@ -15,5 +16,6 @@ var PluginMap = map[string]plugin.ConduitFTAPlugin{
 	rsync.RsyncPluginKey:       &rsync.RsyncPlugin{},
 	posix.PosixPluginKey:       &posix.PosixPlugin{},
 	pftool.PftoolPluginKey:     &pftool.PftoolPlugin{},
+	archive.ArchivePluginKey:   &archive.ArchivePlugin{},
 	marchive.MarchivePluginKey: &marchive.MarchivePlugin{},
 }
