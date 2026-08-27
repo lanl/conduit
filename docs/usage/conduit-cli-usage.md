@@ -378,42 +378,42 @@ JSONPath uses expressions to navigate JSON structures:
 
 Get all transfer IDs:
 ```bash
-conduit describe -o json --jsonpath '$..transferID'
+conduit describe -n -1 -o json --jsonpath '$..transferID'
 # Output: ["3881b460-f415-4351-a69e-ba530d4cb341","202e1d65-8a76-4fb7-859d-58166560268c"]
 ```
 
 Get the transfer ID of the most recent transfer:
 ```bash
-conduit describe -o json --jsonpath '$[0].transferID'
+conduit describe -n -1 -o json --jsonpath '$[0].transferID'
 # Output: "3881b460-f415-4351-a69e-ba530d4cb341"
 ```
 
 Get the state of a specific transfer:
 ```bash
-conduit describe -o json --jsonpath '$[? @.transferID=="3881b460-f415-4351-a69e-ba530d4cb341"].state'
+conduit describe -n -1 -o json --jsonpath '$[? @.transferID=="3881b460-f415-4351-a69e-ba530d4cb341"].state'
 # Output: ["TRANSFER_FINALIZED"]
 ```
 
 Get transfer IDs of all failed transfers:
 ```bash
-conduit describe -o json --jsonpath '$[? @.state=="TRANSFER_ERROR"].transferID'
+conduit describe -n -1 -o json --jsonpath '$[? @.state=="TRANSFER_ERROR"].transferID'
 # Output: ["3881b460-f415-4351-a69e-ba530d4cb341"]
 ```
 
 Get transfer IDs of all completed transfers:
 ```bash
-conduit describe -o json --jsonpath '$[? @.state=="TRANSFER_FINALIZED"].transferID'
+conduit describe -n -1 -o json --jsonpath '$[? @.state=="TRANSFER_FINALIZED"].transferID'
 # Output: ["a2a29634-a064-40aa-bc19-4f0f3d77f43c","f62cc9bd-6096-4009-9340-cdf434c2ce4f"]
 ```
 
 Get source paths of all transfers:
 ```bash
-conduit describe -o json --jsonpath '$..source'
+conduit describe -n -1 -o json --jsonpath '$..source'
 ```
 
 Get byte counts for completed transfers:
 ```bash
-conduit describe -o json --jsonpath '$[? @.state=="TRANSFER_FINALIZED"].dataTransferred'
+conduit describe -n -1 -o json --jsonpath '$[? @.state=="TRANSFER_FINALIZED"].dataTransferred'
 ```
 
 ### Scripting Examples
