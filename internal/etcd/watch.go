@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -62,6 +61,29 @@ func (em *ETCDManager) StartWatchChannels(rev int64, cancel context.CancelCauseF
 func (em *ETCDManager) watchTransfers(wc <-chan clientv3.WatchResponse, cancel context.CancelCauseFunc) {
 	// wc, cancel := em.GetWatchChannelPrefix(proto.TransferPrefix)
 	for wresp := range wc {
+		// notify targeted active-state waiters
+		for _, ev := range wresp.Events {
+			if ev.Type != mvccpb.PUT {
+				continue
+			}
+
+			if !strings.HasSuffix(string(ev.Kv.Key), proto.ActiveKey) {
+				continue
+			}
+
+			if string(ev.Kv.Value) != strconv.FormatBool(false) {
+				continue
+			}
+
+			id, _, err := proto.ParseETCDTransfersKey(string(ev.Kv.Key))
+			if err != nil {
+				em.log.Errorf("failed to parse transfer id from active key[%s]: %v", string(ev.Kv.Key), err)
+				continue
+			}
+
+			em.notifyActiveWaiters(id)
+		}
+
 		em.tmutex.RLock()
 		for id, tclient := range em.tclients {
 			select {
@@ -144,160 +166,102 @@ func (em *ETCDManager) UnsubscribeFromLeases(id uuid.UUID) {
 	em.lmutex.Unlock()
 }
 
-// WaitTransfersActive will block until all transfers with "ids" are no longer active
 func (em *ETCDManager) WaitTransfersActive(ids []uuid.UUID, ctx context.Context) error {
-	// create watch uuid
-	watchID, err := uuid.NewUUID()
-	if err != nil {
-		return fmt.Errorf("failed to create uuid: %v", err)
-	}
-
-	// make a map for active transfers. transfers will get deleted as they become inactive
-	activeTransfers := make(map[uuid.UUID]bool)
-	atLock := sync.RWMutex{}
-	// previousUpdates is used to keep track of any updates that happened right now before we start watching
-	previousUpdates := make(map[uuid.UUID]bool)
-
-	// add all watched transfers to both activeTransfers and previousUpdates
-	for _, id := range ids {
-		activeTransfers[id] = true
-		previousUpdates[id] = true
-	}
-
-	// we know we started watching on the channel when we get a message on this channel
-	goStartedWatching := make(chan bool, 1)
-	// we know the watch is complete when we get a message on this done channel
-	goDone := make(chan error, 1)
-
-	go func() {
-		// subscribe to transfer updates
-		wch := em.SubscribeToTransfers(watchID)
-		defer em.UnsubscribeFromTransfers(watchID)
-		goStartedWatching <- true
-
-		// watch for transfer events in etcd
-		for {
-			select {
-			case wresp, ok := <-wch:
-				if !ok {
-					goDone <- fmt.Errorf("transfer watch channel closed unexpectedly")
-					return
-				}
-				for _, ev := range wresp.Events {
-					// if the event is an active key check if its one of our watched transfers
-					if ev.Type == mvccpb.PUT && strings.HasSuffix(string(ev.Kv.Key), proto.ActiveKey) {
-						id, _, err := proto.ParseETCDTransfersKey(string(ev.Kv.Key))
-						if err != nil {
-							em.log.Errorf("failed to parse transfer id from etcd key: %+v", err)
-							continue
-						}
-						found := false
-						for _, i := range ids {
-							if i == id {
-								found = true
-								break
-							}
-						}
-						// it is one of our watched transfers. if it's no longer active, remove from activeTransfers
-						if found {
-							active, err := strconv.ParseBool(string(ev.Kv.Value))
-							if err != nil {
-								em.log.Errorf("failed to parse active bool: %+v", err)
-								continue
-							}
-
-							if !active {
-								atLock.Lock()
-								delete(activeTransfers, id)
-								atLock.Unlock()
-							}
-						}
-					}
-				}
-				// check if there are no more active transfers and break if there aren't
-				atLock.RLock()
-				if len(activeTransfers) == 0 {
-					goDone <- nil
-					atLock.RUnlock()
-					return
-				}
-				atLock.RUnlock()
-			case <-ctx.Done():
-				goDone <- context.Canceled
-				return
-			}
-		}
-	}()
-
-	// wait till we actually start watching transfers
-	<-goStartedWatching
-
-	// check every watched transfer to see if it already completed before we started watching
-	for _, id := range ids {
-		it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: id.String()})
-		a, err := em.GetActive(it)
-		if err != nil {
-			if errors.Is(err, ErrNotFound) {
-				a = false
-			} else {
-				em.log.Errorf("failed to get transfer active state from etcd: %v", err)
-				continue
-			}
-		}
-		previousUpdates[id] = a
-	}
-
-	// remove any inactive transfers that we found from our activeTransfers map
-	atLock.Lock()
-	for id, a := range previousUpdates {
-		if !a {
-			delete(activeTransfers, id)
-		}
-	}
-	if len(activeTransfers) == 0 {
-		atLock.Unlock()
+	if len(ids) == 0 {
 		return nil
 	}
-	atLock.Unlock()
 
-	// wait for the watch to complete
-	err = <-goDone
-	if err != nil {
-		if err.Error() == context.Canceled.Error() {
-			return err
+	waiterID := uuid.New()
+
+	// At most one notification per transfer we're watching.
+	ch := make(chan uuid.UUID, len(ids))
+
+	pending := make(map[uuid.UUID]struct{}, len(ids))
+	for _, id := range ids {
+		pending[id] = struct{}{}
+	}
+
+	//
+	// IMPORTANT:
+	//
+	// Register BEFORE checking etcd.
+	//
+	// That prevents us from missing active=true -> false
+	// between the initial GetActive and registering the waiter.
+	//
+	em.registerActiveWaiter(waiterID, ids, ch)
+	defer em.unregisterActiveWaiter(waiterID, ids)
+
+	// Now determine which transfers are already inactive.
+	for id := range pending {
+		it := proto.IncompleteTransfer(
+			&proto.TransferDetails{
+				TransferID: id.String(),
+			},
+		)
+
+		active, err := em.GetActive(it)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				delete(pending, id)
+				continue
+			}
+
+			return fmt.Errorf("failed to get active state for transfer[%s]: %v", id, err)
 		}
-		return fmt.Errorf("error while watching transfers: %v", err)
+
+		if !active {
+			delete(pending, id)
+		}
+	}
+
+	for len(pending) > 0 {
+		select {
+		case id := <-ch:
+			delete(pending, id)
+
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
 	return nil
 }
 
-// UpdateExpiryConstantly will update a transfers expiry every 10 seconds. The new expiry will be the configured ExpiryAdvance duration from the current time
-func (em *ETCDManager) UpdateExpiryConstantly(it proto.IncompleteTransfer, stopChan <-chan bool) {
-	em.log.Debugf("constantly updating expiry for transfer[%v] every %v seconds", it.GetTransferID(), 10)
+// // UpdateExpiryConstantly will update a transfers expiry every 10 seconds. The new expiry will be the configured ExpiryAdvance duration from the current time
+// func (em *ETCDManager) UpdateExpiryConstantly(it proto.IncompleteTransfer, ctx context.Context) {
+// 	em.log.Debugf("constantly updating expiry for transfer[%v] every %v seconds", it.GetTransferID(), 10)
 
-	_, err, _ := em.UpdateExpiryOnce(it)
-	if err != nil {
-		em.log.Error(err)
-	}
+// 	_, err, _ := em.UpdateExpiryOnce(it)
+// 	if err != nil {
+// 		em.log.Error(err)
+// 	}
 
-	for {
-		select {
-		case <-stopChan:
-			em.log.Debugf("finished constantly updating expiry for transfer[%v]", it.GetTransferID())
-			return
-		case <-time.After(10 * time.Second):
-			_, err, _ := em.UpdateExpiryOnce(it)
-			if err != nil {
-				em.log.Error(err)
-			}
-		}
-	}
-}
+// 	for {
+// 		select {
+// 		case <-ctx.Done():
+// 			em.log.Debugf("finished constantly updating expiry for transfer[%v]", it.GetTransferID())
+// 			return
+// 		case <-time.After(10 * time.Second):
+// 			_, err, _ := em.UpdateExpiryOnce(it)
+// 			if err != nil {
+// 				em.log.Error(err)
+// 			}
+// 		}
+// 	}
+// }
 
 // UpdateExpiryOnce will update a transfers expiry one time. The new expiry will be the configured ExpiryAdvance duration from the current time
-func (em *ETCDManager) UpdateExpiryOnce(it proto.IncompleteTransfer) (succeeded bool, err error, newExpiry *timestamppb.Timestamp) {
+func (em *ETCDManager) UpdateExpiryOnce(it proto.IncompleteTransfer, status string) (succeeded bool, err error, newExpiry *timestamppb.Timestamp) {
 	newExpiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
+
+	actions := []clientv3.Op{
+		clientv3.OpPut(it.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)),
+	}
+
+	if status != "" {
+		actions = append(actions, clientv3.OpPut(it.ETCDStatusKey(), status))
+	}
 
 	// check if the transfer has an error before updating the expiry key
 	resp, err := em.RetryTxn(
@@ -305,9 +269,7 @@ func (em *ETCDManager) UpdateExpiryOnce(it proto.IncompleteTransfer) (succeeded 
 			clientv3.Compare(clientv3.Value(it.ETCDErrorKey()), "=", proto.Error_ERROR_NONE.String()),
 			clientv3.Compare(clientv3.Value(it.ETCDActiveKey()), "=", strconv.FormatBool(true)),
 		},
-		&[]clientv3.Op{
-			clientv3.OpPut(it.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)),
-		},
+		&actions,
 		defaults.MaxRetries,
 		defaults.RetryDelay,
 	)
@@ -379,4 +341,52 @@ func (em *ETCDManager) UnsubscribeFromErrant(id uuid.UUID) {
 	em.emutex.Lock()
 	delete(em.eclients, id)
 	em.emutex.Unlock()
+}
+
+func (em *ETCDManager) registerActiveWaiter(waiterID uuid.UUID, ids []uuid.UUID, ch chan uuid.UUID) {
+	em.awMutex.Lock()
+	defer em.awMutex.Unlock()
+
+	for _, id := range ids {
+		if em.activeWaiters[id] == nil {
+			em.activeWaiters[id] = make(map[uuid.UUID]chan uuid.UUID)
+		}
+
+		em.activeWaiters[id][waiterID] = ch
+	}
+}
+
+func (em *ETCDManager) unregisterActiveWaiter(waiterID uuid.UUID, ids []uuid.UUID) {
+	em.awMutex.Lock()
+	defer em.awMutex.Unlock()
+
+	for _, id := range ids {
+		waiters := em.activeWaiters[id]
+
+		delete(waiters, waiterID)
+
+		if len(waiters) == 0 {
+			delete(em.activeWaiters, id)
+		}
+	}
+}
+
+func (em *ETCDManager) notifyActiveWaiters(id uuid.UUID) {
+	em.awMutex.Lock()
+
+	waiters := em.activeWaiters[id]
+
+	// This transfer only becomes inactive once, so we don't
+	// need this index anymore.
+	delete(em.activeWaiters, id)
+
+	em.awMutex.Unlock()
+
+	for _, ch := range waiters {
+		select {
+		case ch <- id:
+		default:
+			// Never allow a waiter to block the main etcd watch.
+		}
+	}
 }
