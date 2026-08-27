@@ -30,6 +30,7 @@ import (
 	gcredentials "google.golang.org/grpc/credentials"
 	goproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 /*
@@ -56,22 +57,32 @@ type Scheduler struct {
 
 	activeJobs map[uuid.UUID]bool // the jobs map is only used for stopping conduit and keeps track of the events that the scheduler is actively handling
 	jMutex     sync.RWMutex       // lock for active jobs map
+
+	scheduleWake   chan bool
+	scheduleCancel context.CancelFunc
 }
 
 // NodeInfo contains information regarding a node
 type NodeInfo struct {
-	Jobs   map[string]*proto.JobInfo    // current running jobs on the node [key: transferID]
-	Memory uint64                       // current available memory(MB) on the node
-	Name   string                       // name of node
-	client proto.ConduitRunnerApiClient // API client that allows for streams for status updates
+	Jobs            map[string]*proto.JobInfo // current running jobs on the node [key: transferID]
+	LastJobsVersion uint64
+	Memory          uint64                       // current available memory(MB) on the node
+	Name            string                       // name of node
+	client          proto.ConduitRunnerApiClient // API client that allows for streams for status updates
 }
 
 func (n *NodeInfo) Clone() *NodeInfo {
+	clonedJobs := make(map[string]*proto.JobInfo)
+	for tid, ji := range n.Jobs {
+		clonedJobs[tid] = goproto.Clone(ji).(*proto.JobInfo)
+	}
+
 	return &NodeInfo{
-		Jobs:   maps.Clone(n.Jobs),
-		Memory: n.Memory,
-		Name:   n.Name,
-		client: n.client,
+		Jobs:            clonedJobs,
+		LastJobsVersion: n.LastJobsVersion,
+		Memory:          n.Memory,
+		Name:            n.Name,
+		client:          n.client,
 	}
 }
 
@@ -96,6 +107,7 @@ func NewScheduler(log *logger.ConduitLogger, cm *cert.CertManager, em *etcd.ETCD
 		nodeInfo:      make(map[string]*NodeInfo),
 		id:            id,
 		activeJobs:    make(map[uuid.UUID]bool),
+		scheduleWake:  make(chan bool, 1),
 	}
 
 	// adding nodes to scheduler's map from the CONDUIT config file
@@ -174,6 +186,10 @@ func (s *Scheduler) StartScheduler() error {
 
 	s.stopJobWatchChan = stopChan
 
+	ctx, cancel := context.WithCancel(context.Background())
+	go s.schedulerLoop(ctx)
+	s.scheduleCancel = cancel
+
 	s.log.Infof("Started!")
 
 	s.sMutex.Lock()
@@ -200,6 +216,9 @@ func (s *Scheduler) StopScheduler() error {
 
 	// stop watching jobs from etcd
 	s.stopJobWatchChan <- true
+
+	// stop the scheduler loop
+	s.scheduleCancel()
 
 	// dump out the priority queue
 	s.PriorityLock.Lock()
@@ -240,6 +259,14 @@ func (s *Scheduler) StopScheduler() error {
 	s.sMutex.Unlock()
 
 	return nil
+}
+
+func (s *Scheduler) wakeScheduler() {
+	select {
+	case s.scheduleWake <- true:
+	default:
+		// A wakeup is already pending.
+	}
 }
 
 func (s *Scheduler) RemoveTransfer(id uuid.UUID) error {
@@ -299,39 +326,21 @@ func (s *Scheduler) handleJobEvent(events []*clientv3.Event) {
 				continue
 			}
 
-			// getting job's priority from etcd
-			it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: uid.String()})
-			priority, err := s.em.GetPriority(it)
+			// get transfer createdtime and priority from etcd event
+			schedulerJob := &proto.SchedulerJob{}
+			err = goproto.Unmarshal(event.Kv.Value, schedulerJob)
 			if err != nil {
-				s.log.Errorf("transfer %s has issues getting priority from etcd: %v", uid, err)
+				s.log.Errorf("failed to unmarshal scheduler job for transfer[%s]: %v", uid, err)
 				continue
 			}
 
-			// getting transfer's created time from etcd
-			createdTime, err := s.em.GetCreatedTime(it)
-			if err != nil {
-				s.log.Errorf("transfer %s has issues getting created time from etcd: %v", uid, err)
-				continue
-			}
-
-			// converting the scheduler command action from bytes to a string
-			b := event.Kv.Value
-			action := string(b)
-
-			// converts teh string recieved from etcd and returns the corresponding scheduler command
-			sci, err := ETCDValuestoSchedulerCommand(action)
-			if err != nil {
-				s.log.Errorf("failed to get scheduler command from etcd")
-				continue
-			}
-
-			s.log.Debugf("transfer %s recieved scheduler command: %v", uid, sci)
+			s.log.Debugf("transfer %s recieved scheduler command: %v", uid, schedulerJob.GetCommand())
 
 			s.PriorityLock.Lock()
 
 			// adding the job's uuid, job status, priority, and the time it was created
 			// to the scheduler's priority queue
-			s.priorityQueue.AddJob(uid, sci, createdTime.AsTime(), priority, s.em)
+			s.priorityQueue.AddJob(uid, schedulerJob.GetCommand(), schedulerJob.GetCreatedTime().AsTime(), schedulerJob.GetPriority(), s.em)
 
 			s.PriorityLock.Unlock()
 
@@ -339,13 +348,13 @@ func (s *Scheduler) handleJobEvent(events []*clientv3.Event) {
 
 			// triggering jobRequest to decide which nodes, based on avaliability,
 			// will run the job that has just been sent
-			go s.jobRequest()
+			s.wakeScheduler()
 		}
 	}
 }
 
 // jobRequest grabs the top job from the priority queue and sends it to the most available runner(s)
-func (s *Scheduler) jobRequest() {
+func (s *Scheduler) jobRequest() (keepScheduling bool) {
 	// add job for shutdown purposes
 	eventID := uuid.New()
 	s.jMutex.Lock()
@@ -359,7 +368,7 @@ func (s *Scheduler) jobRequest() {
 
 	if len(*s.priorityQueue) == 0 {
 		s.PriorityLock.Unlock()
-		return
+		return false
 	}
 
 	// removing top job in the priority queue so we can send it to the runner(s)
@@ -367,15 +376,15 @@ func (s *Scheduler) jobRequest() {
 	if tErr != nil {
 		s.log.Errorf("failed to remove job[%v][%v] from top of the priority queue: %v", top.JobID, top.SchedulerCommand, tErr)
 		s.PriorityLock.Unlock()
-		return
+		return false
 	}
 
 	it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: top.JobID.String()})
 
 	// update the expiry for the transfer
-	expiryStop := make(chan bool)
-	go s.em.UpdateExpiryConstantly(it, expiryStop)
-	defer func() { expiryStop <- true }()
+	expiryCtx, expiryCancel := context.WithCancel(context.Background())
+	go s.em.UpdateExpiryConstantly(it, expiryCtx, "")
+	defer expiryCancel()
 
 	s.PriorityLock.Unlock()
 
@@ -383,9 +392,7 @@ func (s *Scheduler) jobRequest() {
 
 	availableNodes := []*NodeInfo{}
 
-	s.nodeInfoLock.Lock()
-
-	defer s.nodeInfoLock.Unlock()
+	s.nodeInfoLock.RLock()
 
 	// getting the status of available nodes
 	for nn, ns := range s.nodeInfo {
@@ -399,26 +406,29 @@ func (s *Scheduler) jobRequest() {
 		// reading in minMemory values
 		nodesMinMemory, err := util.ProcessBytes(s.nodesConfig[ns.Name].MinMemory)
 		if err != nil {
+			s.nodeInfoLock.RUnlock()
 			s.log.Errorf("transfer[%s] error converting minMemory config to bytes: %v", top.JobID, err)
-			return
+			return false
 		}
 
 		s.log.Debugf("%v nodesMinMemory[%v], node currently has: %v", nn, nodesMinMemory, ns.Memory)
 		s.log.Debugf("%v nodesmaxjobs[%v], node currently has: %v", nn, s.nodesConfig[ns.Name].MaxJobs, len(ns.Jobs))
 
 		if top.SchedulerCommand == proto.SchedulerCommand_VALIDATION && ns.Memory > uint64(nodesMinMemory) {
-			availableNodes = append(availableNodes, ns)
+			availableNodes = append(availableNodes, ns.Clone())
 
 		} else if ns.Memory > uint64(nodesMinMemory) && len(ns.Jobs) < s.nodesConfig[ns.Name].MaxJobs {
 
-			availableNodes = append(availableNodes, ns)
+			availableNodes = append(availableNodes, ns.Clone())
 		}
 	}
+
+	s.nodeInfoLock.RUnlock()
 
 	availableNodes, err := sortNodes(availableNodes)
 	if err != nil {
 		s.log.Errorf("transfer[%s] unable to sort available nodes: %v", top.JobID, err)
-		return
+		return false
 	}
 	requiredNumNodes := 0
 
@@ -433,7 +443,7 @@ func (s *Scheduler) jobRequest() {
 		requiredNumNodes = viper.GetInt(defaults.ConfigNodeAllocationsTransferNodesKey)
 	default:
 		s.log.Errorf("transfer[%s] could not find scheduler command: %v", top.JobID, top.SchedulerCommand)
-		return
+		return false
 	}
 
 	if len(availableNodes) >= requiredNumNodes {
@@ -452,10 +462,22 @@ func (s *Scheduler) jobRequest() {
 
 		jobReq.Nodes = nodeNames
 
+		schedulerJob := &proto.SchedulerJob{
+			Command:     top.SchedulerCommand,
+			Priority:    top.Priority,
+			CreatedTime: timestamppb.New(top.CreatedTime),
+		}
+
+		schedulerJobValue, err := goproto.MarshalOptions{Deterministic: true}.Marshal(schedulerJob)
+		if err != nil {
+			s.log.Errorf("failed to marshal scheduler job for transfer[%s]: %v", top.JobID, err)
+			return false
+		}
+
 		// check the value of this transfers job key to make sure it exists and has a value that we expect
 		compares := []clientv3.Cmp{
 			clientv3.Compare(clientv3.CreateRevision(string(it.ETCDJobsKey())), ">", 0),
-			clientv3.Compare(clientv3.Value(it.ETCDJobsKey()), "=", jobReq.Cmd.String()),
+			clientv3.Compare(clientv3.Value(it.ETCDJobsKey()), "=", string(schedulerJobValue)),
 		}
 
 		// delete job from etcd
@@ -466,10 +488,10 @@ func (s *Scheduler) jobRequest() {
 		res, err := s.em.RetryTxn(&compares, &actions, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil {
 			s.log.Errorf("failed to delete the transfer's %s job key [%s] [%s] from etcd: %v", top.JobID, it.ETCDJobsKey(), top.SchedulerCommand, err)
-			return
+			return false
 		} else if !res.Succeeded {
 			s.log.Warnf("the deletion of transfer's [%s] job key [%s] [%s] from etcd was unsuccessful. Another scheduler probably took care of it", top.JobID, it.ETCDJobsKey(), top.SchedulerCommand)
-			return
+			return true
 		}
 
 		s.log.Debugf("deleted job from etcd for transfer[%v]", it.GetTransferID())
@@ -484,11 +506,7 @@ func (s *Scheduler) jobRequest() {
 			}
 
 			// add what we think the node has for current jobs
-			existingJobs := make(map[string]*proto.JobInfo)
-			for tid, ji := range n.Jobs {
-				existingJobs[tid] = goproto.Clone(ji).(*proto.JobInfo)
-			}
-			jobReq.ExistingJobs = existingJobs
+			jobReq.ExistingJobs = n.Jobs
 
 			s.log.Debugf("transfer [%s] is sending %s job [%s] to runner [%v]", top.JobID.String(), jobReq.GetType(), top.SchedulerCommand.String(), n.Name)
 
@@ -531,7 +549,7 @@ func (s *Scheduler) jobRequest() {
 
 				// add job back to etcd
 				actions := []clientv3.Op{
-					clientv3.OpPut(string(it.ETCDJobsKey()), top.SchedulerCommand.String()),
+					clientv3.OpPut(string(it.ETCDJobsKey()), string(schedulerJobValue)),
 				}
 
 				res, err := s.em.RetryTxn(&compares, &actions, defaults.MaxRetries, defaults.RetryDelay)
@@ -546,9 +564,16 @@ func (s *Scheduler) jobRequest() {
 			}
 
 			// update the nodes current jobs with the value from the response
-			newNI := s.nodeInfo[n.Name].Clone()
-			newNI.Jobs = resp.GetJobs()
-			s.nodeInfo[n.Name] = newNI
+			s.nodeInfoLock.Lock()
+
+			// update the nodeinfo if the jobs version is newer
+			if resp.GetJobsVersion() >= s.nodeInfo[n.Name].LastJobsVersion {
+				newNI := s.nodeInfo[n.Name].Clone()
+				newNI.Jobs = resp.GetJobs()
+				s.nodeInfo[n.Name] = newNI
+			}
+
+			s.nodeInfoLock.Unlock()
 
 			// do not go on to the other nodes
 			if !accepted {
@@ -566,21 +591,47 @@ func (s *Scheduler) jobRequest() {
 
 		s.PriorityLock.Unlock()
 
+		requiredNodes := 0
+		requiredMem := 0
+
 		switch top.SchedulerCommand {
 		case proto.SchedulerCommand_VALIDATION:
-			s.log.Warnf("transfer [%s] scheduler command [%s] Not enough nodes available to run this job. Number of nodes needed: %v memory required for this job %v", top.JobID.String(), top.SchedulerCommand.String(), viper.GetInt(defaults.ConfigNodeAllocationsValidationNodesKey), viper.GetInt(defaults.ConfigNodeAllocationsValidationMemoryKey))
-
+			requiredNodes = viper.GetInt(defaults.ConfigNodeAllocationsValidationNodesKey)
+			requiredMem = viper.GetInt(defaults.ConfigNodeAllocationsValidationMemoryKey)
 		case proto.SchedulerCommand_SETUP:
-			s.log.Warnf("transfer [%s] scheduler command [%s] Not enough nodes available to run this job. Number of nodes needed: %v memory required for this job %v", top.JobID.String(), top.SchedulerCommand.String(), viper.GetInt(defaults.ConfigNodeAllocationsSetupNodesKey), viper.GetInt(defaults.ConfigNodeAllocationsSetupMemoryKey))
-
+			requiredNodes = viper.GetInt(defaults.ConfigNodeAllocationsSetupNodesKey)
+			requiredMem = viper.GetInt(defaults.ConfigNodeAllocationsSetupMemoryKey)
 		case proto.SchedulerCommand_TRANSFER:
-			s.log.Warnf("transfer [%s] scheduler command [%s] Not enough nodes available to run this job. Number of nodes needed: %v memory required for this job %v", top.JobID.String(), top.SchedulerCommand.String(), viper.GetInt(defaults.ConfigNodeAllocationsTransferNodesKey), viper.GetInt(defaults.ConfigNodeAllocationsTransferMemoryKey))
-
+			requiredNodes = viper.GetInt(defaults.ConfigNodeAllocationsTransferNodesKey)
+			requiredMem = viper.GetInt(defaults.ConfigNodeAllocationsTransferMemoryKey)
 		case proto.SchedulerCommand_TEARDOWN:
-			s.log.Warnf("transfer [%s] scheduler command [%s] Not enough nodes available to run this job. Number of nodes needed: %v memory required for this job %v", top.JobID.String(), top.SchedulerCommand.String(), viper.GetInt(defaults.ConfigNodeAllocationsTeardownNodesKey), viper.GetInt(defaults.ConfigNodeAllocationsTeardownMemoryKey))
+			requiredNodes = viper.GetInt(defaults.ConfigNodeAllocationsTeardownNodesKey)
+			requiredMem = viper.GetInt(defaults.ConfigNodeAllocationsTeardownMemoryKey)
 		}
 
-		return
+		s.log.Warnf("transfer [%s] scheduler command [%s] Not enough nodes available to run this job. Number of nodes needed: %v memory required for this job %v", top.JobID.String(), top.SchedulerCommand.String(), requiredNodes, requiredMem)
+
+		return false
+	}
+
+	return true
+}
+
+func (s *Scheduler) schedulerLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			s.log.Infof("stopping scheduler loop")
+			return
+		case <-s.scheduleWake:
+			for {
+				keepScheduling := s.jobRequest()
+
+				if !keepScheduling {
+					break
+				}
+			}
+		}
 	}
 }
 
@@ -692,7 +743,7 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 
 			s.nodeInfoLock.Unlock()
 
-			go s.jobRequest()
+			s.wakeScheduler()
 
 			timer.Reset(idleTimeout)
 
