@@ -167,6 +167,8 @@ func (tw *TransferWorker) checkCurrentTransfers() (int64, error) {
 			Type: mvccpb.PUT,
 			Kv:   kv,
 		})
+
+		tw.log.Debugf("reprocessing: %s = %s", string(kv.Key), string(kv.Value))
 	}
 
 	tw.handleTransferEvents(evs)
@@ -269,16 +271,16 @@ running:
 // handleTransferEvents gets called whenever an event is passed to the transfer watch channel
 func (tw *TransferWorker) handleTransferEvents(evs []*clientv3.Event) {
 	for _, ev := range evs {
+		// We only care about PUTs
+		if ev == nil || ev.Kv == nil || ev.Type != mvccpb.PUT {
+			continue
+		}
+
 		eventID := uuid.New()
 		tw.jMutex.Lock()
 		tw.jobs[eventID] = true
 		tw.jMutex.Unlock()
 
-		// skip any delete events
-		if ev.Type == mvccpb.DELETE {
-			tw.removeJob(eventID)
-			continue
-		}
 		// check if it's a lease event
 		id, _, err := proto.ParseETCDTransfersKey(string(ev.Kv.Key))
 		if err == nil {
@@ -367,38 +369,18 @@ func (tw *TransferWorker) handleStateUpdate(it proto.IncompleteTransfer, fromSta
 	}
 	tw.log.Infof("successfully set transfer[%s] state to %v", it.GetTransferID(), toState.String())
 
-	// get a full transfer details from etcd
-	tid, err := uuid.Parse(it.GetTransferID())
-	if err != nil {
-		tErr := fmt.Errorf("failed to parse transfer id from[%s]: %v", it.GetTransferID(), err)
-		_, _, err := tw.em.SafelyAddErr(it, proto.Error_ERROR_CONDUIT_INTERNAL, tErr)
-		if err != nil {
-			tw.log.Error(err)
-		}
-		return
-	}
-	t, pErr, err := tw.em.GetTransfer(tid)
-	if err != nil {
-		tErr := fmt.Errorf("failed to get transfer[%s] from etcd: %v", it.GetTransferID(), err)
-		_, _, err := tw.em.SafelyAddErr(it, pErr, tErr)
-		if err != nil {
-			tw.log.Error(err)
-		}
-		return
-	}
-
 	// submit scheduler job
-	pErr, err = tw.startSchedulerJob(t, t.GetUser(), command, successfulState)
+	pErr, err = tw.startSchedulerJob(it, command, successfulState)
 	if err != nil {
-		_, _, err := tw.em.SafelyAddErr(t, pErr, err)
+		_, _, err := tw.em.SafelyAddErr(it, pErr, err)
 		if err != nil {
 			tw.log.Error(err)
 		}
-		tw.log.Debugf("successfully set transfer[%s] error to %v", t.GetTransferID(), pErr.String())
+		tw.log.Debugf("successfully set transfer[%s] error to %v", it.GetTransferID(), pErr.String())
 		return
 	}
 
-	tw.log.Infof("successfully proceeded to transfer[%s] to %s", t.GetTransferID(), successfulState.String())
+	tw.log.Infof("successfully proceeded to transfer[%s] to %s", it.GetTransferID(), successfulState.String())
 
 }
 
@@ -433,8 +415,8 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 		}
 		return nil
 	}
-	// get full transfer from etcd
-	t, pErr, err := tw.em.GetTransfer(tid)
+	// get transfer leases from etcd
+	leases, pErr, err := tw.em.GetTransferLeases(it)
 	if err != nil {
 		tErr := fmt.Errorf("failed to get transfer[%s] from etcd: %v", it.GetTransferID(), err)
 		_, _, err := tw.em.SafelyAddErr(it, pErr, tErr)
@@ -444,15 +426,12 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 		return nil
 	}
 
-	// submit this transfers leases to the lease space in etcd
-	leases := t.GetLeases()
-
 	// create op for path list in leases prefix
 	jsonPathList, err := protojson.Marshal(leases)
 	if err != nil {
-		tErr := fmt.Errorf("transfer[%s]: failed to marshal path list into json for transfer: %v", t.GetTransferID(), err)
+		tErr := fmt.Errorf("transfer[%s]: failed to marshal path list into json for transfer: %v", it.GetTransferID(), err)
 		tw.log.Error(tErr)
-		_, _, err := tw.em.SafelyAddErr(it, proto.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("transfer[%s]: failed to marshal path list into json for transfer: %v", t.GetTransferID(), err))
+		_, _, err := tw.em.SafelyAddErr(it, proto.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("transfer[%s]: failed to marshal path list into json for transfer: %v", it.GetTransferID(), err))
 		if err != nil {
 			tw.log.Errorf("%s failed to error: %v", it.GetTransferID(), err)
 		}
@@ -478,7 +457,13 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 		tw.log.Debugf("transfer[%s] was already in the lease list. Using revision: %v ", tid, rev)
 	} else {
 		// add transfer to the lease list in etcd
-		putResp, err := tw.em.RetryPut(it.ETCDLeaseListKey(), string(jsonPathList), defaults.MaxRetries, defaults.RetryDelay)
+		comparisons := []clientv3.Cmp{
+			clientv3.Compare(clientv3.Value(it.ETCDStateKey()), "=", proto.TransferState_TRANSFER_WAITING_FOR_LEASE.String()),
+		}
+		actions := []clientv3.Op{
+			clientv3.OpPut(it.ETCDLeaseListKey(), string(jsonPathList)),
+		}
+		txnResp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil {
 			tErr := fmt.Errorf("failed to put lease list into etcd for transfer[%s]: %v", it.GetTransferID(), err)
 			tw.log.Error(tErr)
@@ -486,13 +471,18 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 			if err != nil {
 				tw.log.Errorf("%s failed to error: %v", it.GetTransferID(), err)
 			}
-			return nil
+			return tErr
+		}
+		if !txnResp.Succeeded {
+			tErr := fmt.Errorf("failed to put lease list into etcd for transfer[%s] because the transfer state is not %s", it.GetTransferID(), proto.TransferState_TRANSFER_WAITING_FOR_LEASE)
+			tw.log.Error(tErr)
+			return tErr
 		}
 
-		tw.log.Debugf("transfer[%s] successfully added leases to etcd(%v): %v:%v", tid, putResp.Header.GetRevision(), it.ETCDLeaseListKey(), string(jsonPathList))
+		tw.log.Debugf("transfer[%s] successfully added leases to etcd(%v): %v:%v", tid, txnResp.Header.GetRevision(), it.ETCDLeaseListKey(), string(jsonPathList))
 
 		// use the revision from when we added this transfers leases
-		rev = putResp.Header.GetRevision()
+		rev = txnResp.Header.GetRevision()
 	}
 
 	// get all the other leases listed in the lease prefix area
@@ -581,13 +571,13 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 	tw.log.Debugf("transfer[%s] waiting for conflicting transfers", tid)
 
 	// start updating the expiry for the transfer
-	updateExpiryStopChan := make(chan bool, 1)
-	go tw.em.UpdateExpiryConstantly(t, updateExpiryStopChan)
+	updateExpiryStopCtx, updateExpiryCancel := context.WithCancel(context.Background())
+	go tw.em.UpdateExpiryConstantly(it, updateExpiryStopCtx, fmt.Sprintf("Waiting for conflicting transfers: %v", ct))
 
 	err = tw.em.WaitTransfersActive(ct, ctx)
 	if err != nil {
 		if err.Error() == context.Canceled.Error() {
-			updateExpiryStopChan <- true
+			updateExpiryCancel()
 			return err
 		}
 
@@ -597,12 +587,12 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 		if err != nil {
 			tw.log.Errorf("%s failed to error: %v", it.GetTransferID(), err)
 		}
-		updateExpiryStopChan <- true
+		updateExpiryCancel()
 		return nil
 	}
 
 	// stop updating the expiry for the transfer
-	updateExpiryStopChan <- true
+	updateExpiryCancel()
 
 	tw.log.Debugf("transfer[%s] done waiting for conflicting trasnfers", tid)
 
@@ -660,6 +650,8 @@ func (tw *TransferWorker) verifyFinalized(it proto.IncompleteTransfer, eventID u
 	comparisons := []clientv3.Cmp{}
 	actions := []clientv3.Op{}
 
+	newExpiry := timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
+
 	comparisons = append(comparisons, clientv3.Compare(clientv3.Value(it.ETCDStateKey()), "=", proto.TransferState_TRANSFER_TEARDOWN_COMPLETE.String()))
 	comparisons = append(comparisons, clientv3.Compare(clientv3.Value(it.ETCDErrorKey()), "=", proto.Error_ERROR_NONE.String()))
 
@@ -668,6 +660,7 @@ func (tw *TransferWorker) verifyFinalized(it proto.IncompleteTransfer, eventID u
 	actions = append(actions, clientv3.OpPut(it.ETCDEndTimeKey(), timestamppb.Now().AsTime().Format(time.RFC3339)))
 	actions = append(actions, clientv3.OpDelete(it.ETCDLeaseListKey()))
 	actions = append(actions, clientv3.OpPut(it.ETCDArchiveStateKey(), proto.ArchiveState_ARCHIVE_READY.String()))
+	actions = append(actions, clientv3.OpPut(it.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)))
 
 	resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
@@ -704,19 +697,9 @@ func (tw *TransferWorker) verifyValidationComplete(it proto.IncompleteTransfer, 
 
 	tw.log.Infof("transfer[%v] is done with validation. Checking for how to proceed", it.GetTransferID())
 
-	// get a full transfer details from etcd
-	tid, err := uuid.Parse(it.GetTransferID())
+	validationOnly, pErr, err := tw.em.GetTransferValidationOnly(it)
 	if err != nil {
-		tErr := fmt.Errorf("failed to parse transfer id from[%s]: %v", it.GetTransferID(), err)
-		_, _, err := tw.em.SafelyAddErr(it, proto.Error_ERROR_CONDUIT_INTERNAL, tErr)
-		if err != nil {
-			tw.log.Error(err)
-		}
-		return
-	}
-	t, pErr, err := tw.em.GetTransfer(tid)
-	if err != nil {
-		tErr := fmt.Errorf("failed to get transfer[%s] from etcd: %v", it.GetTransferID(), err)
+		tErr := fmt.Errorf("failed to get transfer[%s] validation only key from etcd: %v", it.GetTransferID(), err)
 		_, _, err := tw.em.SafelyAddErr(it, pErr, tErr)
 		if err != nil {
 			tw.log.Error(err)
@@ -725,12 +708,12 @@ func (tw *TransferWorker) verifyValidationComplete(it proto.IncompleteTransfer, 
 	}
 
 	// check if this is stopping after validation. If it isn't, continue to acquire leases
-	if !t.GetValidationOnly() {
+	if !validationOnly {
 		acquireLeaseDoneChan := make(chan error, 1)
 		ctx, ctxCancel := context.WithCancel(context.Background())
 
 		go func() {
-			err := tw.acquireLeases(t, ctx)
+			err := tw.acquireLeases(it, ctx)
 			acquireLeaseDoneChan <- err
 		}()
 
@@ -741,7 +724,7 @@ func (tw *TransferWorker) verifyValidationComplete(it proto.IncompleteTransfer, 
 		case <-stopChan:
 			tw.log.Debugf("stopping acquire lease for transfer[%s] event[%s]", it.GetTransferID(), eventID)
 			ctxCancel()
-			err := tw.em.RollbackState(t, proto.TransferState_TRANSFER_WAITING_FOR_LEASE, proto.TransferState_TRANSFER_VALIDATION_COMPLETE, etcd.Transfer, nil)
+			err := tw.em.RollbackState(it, proto.TransferState_TRANSFER_WAITING_FOR_LEASE, proto.TransferState_TRANSFER_VALIDATION_COMPLETE, etcd.Transfer, nil)
 			if err != nil {
 				tw.log.Errorf("failed to rollback transfer from [%s] to [%s]: %v", proto.TransferState_TRANSFER_WAITING_FOR_LEASE, proto.TransferState_TRANSFER_VALIDATION_COMPLETE, err)
 			}
@@ -755,6 +738,8 @@ func (tw *TransferWorker) verifyValidationComplete(it proto.IncompleteTransfer, 
 	comparisons := []clientv3.Cmp{}
 	actions := []clientv3.Op{}
 
+	newExpiry := timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
+
 	comparisons = append(comparisons, clientv3.Compare(clientv3.Value(it.ETCDStateKey()), "=", proto.TransferState_TRANSFER_VALIDATION_COMPLETE.String()))
 	comparisons = append(comparisons, clientv3.Compare(clientv3.Value(it.ETCDErrorKey()), "=", proto.Error_ERROR_NONE.String()))
 	comparisons = append(comparisons, clientv3.Compare(clientv3.Value(it.ETCDValidationOnlyKey()), "=", strconv.FormatBool(true)))
@@ -764,6 +749,7 @@ func (tw *TransferWorker) verifyValidationComplete(it proto.IncompleteTransfer, 
 	actions = append(actions, clientv3.OpPut(it.ETCDEndTimeKey(), timestamppb.Now().AsTime().Format(time.RFC3339)))
 	actions = append(actions, clientv3.OpDelete(it.ETCDLeaseListKey()))
 	actions = append(actions, clientv3.OpPut(it.ETCDArchiveStateKey(), proto.ArchiveState_ARCHIVE_READY.String()))
+	actions = append(actions, clientv3.OpPut(it.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)))
 
 	resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
