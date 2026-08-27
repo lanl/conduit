@@ -44,6 +44,7 @@ type Runner struct {
 	AvailableMemory uint64
 	JobsInfoLock    sync.RWMutex
 	JobsInfo        map[string]*proto.JobInfo // key: transferID value: map of Slurm Commands
+	JobsVersion     uint64
 	StreamsInfo     map[uuid.UUID]*StreamInfo
 	StreamsLock     sync.RWMutex
 
@@ -186,6 +187,7 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 
 		r.log.Infof("removed transfer %s job %s from job map", id, req.GetCmd())
 
+		r.JobsVersion++
 		r.JobsInfoLock.Unlock()
 
 		r.job_channel <- true
@@ -320,6 +322,7 @@ func (r *Runner) ETCDWatcher(cmd proto.SchedulerCommand, tid string) {
 
 				r.log.Infof("removed allocated transfer %s job %s from job map", tid, cmd)
 
+				r.JobsVersion++
 				r.JobsInfoLock.Unlock()
 
 				r.job_channel <- true
@@ -359,11 +362,9 @@ func (r *Runner) MemoryMonitor(sleepDuration time.Duration) {
 	}
 }
 
-// UpdateStreams monitors the number of current running jobs on the nodes along with the nodes' current memory usage and streams that information to scheduler
+// UpdateStreams monitors the number of current running jobs on the node along with the node's current memory usage and streams that information to scheduler
 func (r *Runner) UpdateStreams() {
-
 	for {
-
 		select {
 		// Sending the updated memory to the memory channel
 		case <-r.mem_channel:
@@ -382,6 +383,7 @@ func (r *Runner) UpdateStreams() {
 		status := &proto.NodeStatus{
 			Jobs:            currentJobs,
 			AvailableMemory: r.AvailableMemory,
+			JobsVersion:     r.JobsVersion,
 		}
 
 		r.StreamsLock.Lock()
@@ -389,6 +391,7 @@ func (r *Runner) UpdateStreams() {
 
 			stream := *si.stream
 
+			r.log.Debugf("sending new node status to scheduler: %+v", status)
 			err := stream.Send(status)
 			if err != nil {
 				r.log.Errorf("Failed to send node status to conduit server: %v", err)
