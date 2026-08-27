@@ -4,11 +4,14 @@ package transferworker
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
+	"github.com/spf13/viper"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // handleLeaseError sets the transfer status to error and cancels all other scheduler jobs for this transfer
@@ -33,6 +36,10 @@ func (tw *TransferWorker) handleTransferError(it proto.IncompleteTransfer, event
 	}
 	if !resp.Succeeded {
 		tw.log.Warnf("failed to add error state to transfer[%v], it was already set to error state", it.GetTransferID())
+		err := tw.em.CompleteTransfer(it)
+		if err != nil {
+			tw.log.Error(err)
+		}
 		return
 	}
 
@@ -65,12 +72,15 @@ func (tw *TransferWorker) handleTransferError(it proto.IncompleteTransfer, event
 		comparisons := []clientv3.Cmp{}
 		actions := []clientv3.Op{}
 
+		newExpiry := timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
+
 		// TODO: is this going to check this correctly?
 		comparisons = append(comparisons, clientv3.Compare(clientv3.Value(it.ETCDSchedulerNodesKey(proto.SchedulerCommand_SETUP)), "=", ""))
 
 		actions = append(actions, clientv3.OpPut(it.ETCDActiveKey(), strconv.FormatBool(false)))
 		actions = append(actions, clientv3.OpPut(it.ETCDArchiveStateKey(), proto.ArchiveState_ARCHIVE_READY.String()))
 		actions = append(actions, clientv3.OpDelete(it.ETCDLeaseListKey(), clientv3.WithPrefix()))
+		actions = append(actions, clientv3.OpPut(it.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)))
 
 		resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil || !resp.Succeeded {
