@@ -35,6 +35,7 @@ const (
 	CreatedTimeKey   = "createdTime"
 	ErrorMessageKey  = "errorMessage"
 	StatusDetailsKey = "statusDetails"
+	StatusKey        = "status"
 	ActiveKey        = "active"
 	ActionKey        = "action"
 	OptionsKey       = "options"
@@ -190,6 +191,11 @@ func (t *TransferDetails) ETCDValidationOnlyKey() string {
 	return t.getKey(ValidationOnlyKey)
 }
 
+// ETCDStatusKey requires TransferDetails to have a minimum of TransferID specified
+func (t *TransferDetails) ETCDStatusKey() string {
+	return t.getKey(StatusKey)
+}
+
 // // ETCDFullDestinationsKey requires TransferDetails to have a minimum of TransferID specified
 // func (t *TransferDetails) ETCDFullDestinationsKey() string {
 // 	return t.getKey(FullDestinationsKey)
@@ -326,7 +332,7 @@ func NewTransferDetails() *TransferDetails {
 		DestInfo:               DestInfo_DEST_NONE,
 		ValidationOnly:         false,
 		PluginData:             []byte{},
-		PluginStatus:           "",
+		Status:                 "",
 		Priority:               0,
 		Options:                make(map[string]*anypb.Any),
 	}
@@ -359,6 +365,7 @@ type IncompleteTransfer interface {
 	ETCDEndTimeKey() string
 	ETCDCreatedTimeKey() string
 	ETCDStatusDetailsKey() string
+	ETCDStatusKey() string
 	ETCDCommentKey() string
 	ETCDPausedStateKey() string
 	ETCDArchiveStateKey() string
