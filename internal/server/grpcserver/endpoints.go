@@ -171,7 +171,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 		s.eMutex.RUnlock()
 	}
 
-	s.em.SubmitTransfer(transfer)
+	s.em.SubmitTransfers([]*proto.TransferDetails{transfer})
 
 	return transfer, nil
 }
@@ -531,7 +531,7 @@ func (s *ConduitServer) WatchStatus(tids *proto.TransferIds, stream proto.Condui
 				}
 
 				it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: uid.String()})
-				resUser, err := s.em.GetTransferUser(it)
+				resUser, _, err := s.em.GetTransferUser(it)
 				if err != nil {
 					err = fmt.Errorf("failed to get user for tranfser[%v]: %v", rid, err)
 					s.log.Error(err)
@@ -787,7 +787,7 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 		transfer.Warnings = append(transfer.Warnings, fmt.Sprintf("%s (Validate Transfer)", adminWarning))
 	}
 
-	s.em.SubmitTransfer(transfer)
+	s.em.SubmitTransfers([]*proto.TransferDetails{transfer})
 
 	return transfer, nil
 }
@@ -864,7 +864,7 @@ func (s *ConduitServer) SchedulerInfo(ctx context.Context, _ *emptypb.Empty) (*p
 
 	schedulers := make(map[string]*proto.SchedulerStatus)
 
-	for _, schduler := range s.sched {
+	for _, schduler := range s.schdulers {
 		schedulerStatus := &proto.SchedulerStatus{
 			Nodes: make(map[string]*proto.NodeStatus),
 		}
