@@ -42,10 +42,29 @@ func (p *ArchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathI
 		return plugin.PluginErrors{}, pathInfo
 	}
 
-	// Arguments for the Archive Stager
-	args := []string{"stage", pathInfo.OriginalUserPath}
+	// Arguments for the Archive Stager, set based on type of path passed in
+        args := []string{}
+	ds, err := os.Lstat(pathInfo.OriginalUserPath)
+        if err != nil {
+		p.log.Errorf("Bad Source path %s passed to Archive Setup: err = %v", pathInfo.OriginalUserPath, err)
+		return plugin.PluginErrors{
+			Errors: []*plugin.FTAPathError{
+				{
+					LeasePath:  "",
+					PErr:       proto.Error_ERROR_STAT_FAILED,
+					ErrMessage: fmt.Errorf("Bad path (%s) for Archive Stager: err = %v", pathInfo.OriginalUserPath, err),
+				},
+			},
+		}, nil
+	}
+	if ds.IsDir() {
+	        args = []string{"stage", "--wait", "-R", "--concurrent", pathInfo.OriginalUserPath}
+	} else {
+	        args = []string{"stage", pathInfo.OriginalUserPath}
+	}
 	p.log.Debugf("Archive Stager Command Generator: %v %v", scriptRelPath, args)
 
+	// Execute the Archive Stager command
 	cmd := exec.Command(scriptRelPath, args...)
 	cmd.Env = os.Environ() // Make sure command is using existing environment
 
