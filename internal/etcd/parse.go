@@ -148,6 +148,8 @@ func ParseETCDTransfer(id uuid.UUID, kvs []*mvccpb.KeyValue, old *proto.Transfer
 			t.User = string(kv.Value)
 		case string(kv.Key) == t.ETCDCommentKey():
 			t.Comment = string(kv.Value)
+		case string(kv.Key) == t.ETCDStatusKey():
+			t.Status = string(kv.Value)
 		case string(kv.Key) == t.ETCDStartTimeKey():
 			startTime, err := time.Parse(time.RFC3339, string(kv.Value))
 			if err != nil {
@@ -245,6 +247,7 @@ func ConvertETCDTransfer(t *proto.TransferDetails) ([]clientv3.Op, error) {
 	ops = append(ops, clientv3.OpPut(t.ETCDActionKey(), t.GetAction()))
 	ops = append(ops, clientv3.OpPut(t.ETCDOptionsKey(), string(options)))
 	ops = append(ops, clientv3.OpPut(t.ETCDCommentKey(), t.GetComment()))
+	ops = append(ops, clientv3.OpPut(t.ETCDStatusKey(), t.GetStatus()))
 	ops = append(ops, clientv3.OpPut(t.ETCDPausedStateKey(), t.GetPausedState().String()))
 	ops = append(ops, clientv3.OpPut(t.ETCDExpiryKey(), t.GetExpiry().AsTime().Format(time.RFC3339)))
 	ops = append(ops, clientv3.OpPut(t.ETCDArchiveStateKey(), t.GetArchiveState().String()))
