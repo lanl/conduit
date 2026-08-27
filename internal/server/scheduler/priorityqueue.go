@@ -4,6 +4,7 @@ package scheduler
 
 import (
 	"container/heap"
+	"context"
 	"fmt"
 	"time"
 
@@ -18,7 +19,7 @@ type Job struct {
 	SchedulerCommand proto.SchedulerCommand
 	Index            int // index of the item in the heap
 	CreatedTime      time.Time
-	StopChannel      chan bool
+	StopCtx          context.CancelFunc
 }
 
 // A priority queue implements heap.Interface and holds the Jobs
@@ -28,27 +29,33 @@ func (pq PriorityQueue) Len() int {
 	return len(pq)
 }
 
-func (pq PriorityQueue) Less(i, j int) bool {
+func jobLess(a, b *Job) bool {
 	// We want Pop to give us the highest priority
 	// which is why we use the greater than symbol
 	// priority queue is sorted by these values:
 	// 1. validation jobs
 	// 2. higher priority value
 	// 3. created datetime
+
 	switch {
-	case pq[i].SchedulerCommand == proto.SchedulerCommand_VALIDATION && pq[j].SchedulerCommand != proto.SchedulerCommand_VALIDATION:
+	case a.SchedulerCommand == proto.SchedulerCommand_VALIDATION && b.SchedulerCommand != proto.SchedulerCommand_VALIDATION:
 		return true
-	case pq[i].SchedulerCommand != proto.SchedulerCommand_VALIDATION && pq[j].SchedulerCommand == proto.SchedulerCommand_VALIDATION:
+	case a.SchedulerCommand != proto.SchedulerCommand_VALIDATION && b.SchedulerCommand == proto.SchedulerCommand_VALIDATION:
 		return false
-	case pq[i].Priority > pq[j].Priority:
+	case a.Priority > b.Priority:
 		return true
-	case pq[i].Priority < pq[j].Priority:
+	case a.Priority < b.Priority:
 		return false
-	case pq[i].CreatedTime.Before(pq[j].CreatedTime):
+	case a.CreatedTime.Before(b.CreatedTime):
 		return true
 	default:
 		return false
 	}
+
+}
+
+func (pq PriorityQueue) Less(i, j int) bool {
+	return jobLess(pq[i], pq[j])
 }
 
 func (pq PriorityQueue) Swap(i, j int) {
@@ -75,11 +82,8 @@ func (pq *PriorityQueue) Pop() any {
 }
 
 func (pq *PriorityQueue) AddJob(jobID uuid.UUID, schedulerCommand proto.SchedulerCommand, createdTime time.Time, priority uint32, em *etcd.ETCDManager) {
-
-	// create Stop Channel here
-	// make this channel a buffer channel to avoid blocking
-	// give it a size of 1 (double check)
-	updateExpiryStopChan := make(chan bool, 1)
+	// create stop context here
+	updateExpiryStopCtx, updateExpiryCancel := context.WithCancel(context.Background())
 
 	// Insert a new item and then modify its priority
 	item := &Job{
@@ -87,15 +91,23 @@ func (pq *PriorityQueue) AddJob(jobID uuid.UUID, schedulerCommand proto.Schedule
 		Priority:         priority,
 		SchedulerCommand: schedulerCommand,
 		CreatedTime:      createdTime,
-		StopChannel:      updateExpiryStopChan,
+		StopCtx:          updateExpiryCancel,
 	}
 	heap.Push(pq, item)
+
+	// Figure out where this job ranks in the queue.
+	position := 1
+	for _, existing := range *pq {
+		if existing != item && jobLess(existing, item) {
+			position++
+		}
+	}
 
 	it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: jobID.String()})
 
 	// start updating the expiry for the transfer
 	if em != nil {
-		go em.UpdateExpiryConstantly(it, item.StopChannel)
+		go em.UpdateExpiryConstantly(it, updateExpiryStopCtx, fmt.Sprintf("queued by scheduler (%d/%d)", position, pq.Len()))
 	}
 }
 
@@ -107,7 +119,7 @@ func (pq *PriorityQueue) PopJob() (*Job, error) {
 	top := heap.Pop(pq).(*Job)
 
 	// stop updating the expiry for the transfer
-	top.StopChannel <- true
+	top.StopCtx()
 
 	return top, nil
 }
@@ -119,7 +131,7 @@ func (pq *PriorityQueue) RemoveJob(id uuid.UUID) (newQueue *PriorityQueue) {
 	for i := 0; i < len(queue); i++ {
 		if queue[i].JobID == id {
 			// stop updating the expiry for the transfer
-			queue[i].StopChannel <- true
+			queue[i].StopCtx()
 
 			queue = append(queue[:i], queue[i+1:]...)
 		}
