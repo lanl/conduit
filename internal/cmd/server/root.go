@@ -5,7 +5,10 @@ package servercmd
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"os"
+
+	_ "net/http/pprof"
 
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/server/grpcserver"
@@ -17,7 +20,6 @@ import (
 var (
 	cfgFile         string
 	debug           bool
-	clearEtcd       bool
 	etcdIPs         []net.IP
 	etcdPorts       []int
 	etcdHostnames   []string
@@ -39,13 +41,21 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			if viper.GetBool(defaults.ConfigTestKey) {
 				logrus.Error("CONDUIT IN TEST MODE! THIS SHOULD NEVER HAPPEN IN PRODUCTION")
+
+				if debug {
+					go func() {
+						if err := http.ListenAndServe(":6060", nil); err != nil {
+							logrus.Errorf("pprof server failed: %v", err)
+						}
+					}()
+				}
 			}
 			s, err := grpcserver.CreateConduitServer(debug)
 			if err != nil {
 				logrus.Errorf("failed to create conduit server: %v", err)
 				os.Exit(1)
 			}
-			err = s.StartConduitServer(clearEtcd)
+			err = s.StartConduitServer()
 			if err != nil {
 				logrus.Errorf("conduit exiting with err: %v", err)
 				os.Exit(1)
@@ -66,8 +76,6 @@ func Execute() {
 
 func init() {
 	cobra.OnInitialize(func() { initConfig(cfgFile) })
-
-	RootCmd.Flags().BoolVar(&clearEtcd, "clear-etcd", false, "This will completely clear out all conduit related entries in ETCD when conduit starts")
 
 	// global flags
 	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", fmt.Sprintf("config file (default is %s%s.%s)", DefaultConfigLocation, ConfigName, ConfigType))
