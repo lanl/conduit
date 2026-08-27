@@ -72,6 +72,7 @@ func (r *Runner) GetNodeStatus(context.Context, *emptypb.Empty) (*proto.NodeStat
 	status := &proto.NodeStatus{
 		Jobs:            currentJobs,
 		AvailableMemory: r.AvailableMemory,
+		JobsVersion:     r.JobsVersion,
 	}
 
 	return status, nil
@@ -90,6 +91,8 @@ func (r *Runner) SubmitFTAJob(ctx context.Context, req *proto.JobRequest) (*prot
 		return nil, tErr
 	}
 
+	r.log.Debugf("request for %s transfer[%s]", req.GetCmd(), req.GetTransferID())
+
 	r.JobsInfoLock.Lock()
 	defer r.JobsInfoLock.Unlock()
 
@@ -105,6 +108,7 @@ func (r *Runner) SubmitFTAJob(ctx context.Context, req *proto.JobRequest) (*prot
 						return &proto.NodeStatus{
 							Jobs:            r.getCurrentJobs(),
 							AvailableMemory: r.AvailableMemory,
+							JobsVersion:     r.JobsVersion,
 						}, nil
 					}
 				}
@@ -112,6 +116,7 @@ func (r *Runner) SubmitFTAJob(ctx context.Context, req *proto.JobRequest) (*prot
 				return &proto.NodeStatus{
 					Jobs:            r.getCurrentJobs(),
 					AvailableMemory: r.AvailableMemory,
+					JobsVersion:     r.JobsVersion,
 				}, nil
 			}
 		}
@@ -125,6 +130,7 @@ func (r *Runner) SubmitFTAJob(ctx context.Context, req *proto.JobRequest) (*prot
 	}
 
 	r.JobsInfo[id.String()].GetActions()[int32(req.GetCmd())] = true
+	r.JobsVersion++
 
 	if req.Type == proto.JobType_ALLOCATE {
 		r.log.Infof("allocate %s job for transfer %s", req.GetTransferID(), req.GetCmd())
@@ -142,6 +148,7 @@ func (r *Runner) SubmitFTAJob(ctx context.Context, req *proto.JobRequest) (*prot
 	return &proto.NodeStatus{
 		Jobs:            r.getCurrentJobs(),
 		AvailableMemory: r.AvailableMemory,
+		JobsVersion:     r.JobsVersion,
 	}, nil
 }
 
