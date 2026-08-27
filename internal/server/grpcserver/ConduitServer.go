@@ -34,8 +34,10 @@ import (
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/etcd"
 	"github.com/lanl/conduit/internal/etcd/util"
+	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/logger"
 	cert "github.com/lanl/conduit/internal/pki"
+	"github.com/lanl/conduit/internal/server/archive"
 	"github.com/lanl/conduit/internal/server/httpserver"
 	"github.com/lanl/conduit/internal/server/rqlite"
 	"github.com/lanl/conduit/internal/server/scheduler"
@@ -57,14 +59,15 @@ var (
 
 type ConduitServer struct {
 	proto.UnimplementedConduitApiServer
-	si    *grpckrb.KRBServerInterceptor
-	em    *etcd.ETCDManager
-	cm    *cert.CertManager
-	rm    *rqlite.RqliteManager
-	tws   []*transferworker.TransferWorker
-	lws   []*watchdog.Watchdog
-	id    uuid.UUID
-	sched []*scheduler.Scheduler
+	si              *grpckrb.KRBServerInterceptor
+	em              *etcd.ETCDManager
+	cm              *cert.CertManager
+	rm              *rqlite.RqliteManager
+	transferWorkers []*transferworker.TransferWorker
+	watchdogs       []*watchdog.Watchdog
+	archivers       []*archive.Archiver
+	id              uuid.UUID
+	schdulers       []*scheduler.Scheduler
 
 	grpcServer   *grpc.Server
 	httpServer   *httpserver.HTTPServer
@@ -246,8 +249,10 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 
 	numWatchdogs := viper.GetInt(defaults.ConfigConcurrentWatchdogsKey)
 	lws := []*watchdog.Watchdog{}
+	aws := []*archive.Archiver{}
 	for i := 0; i < numWatchdogs; i++ {
-		lws = append(lws, watchdog.NewWatchdog(log, cm, em, rm, sched))
+		lws = append(lws, watchdog.NewWatchdog(log, cm, em, sched))
+		aws = append(aws, archive.NewArchiver(log, cm, em, rm))
 	}
 
 	// Create the main listener.
@@ -296,10 +301,11 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 		em:                 em,
 		cm:                 cm,
 		rm:                 rm,
-		tws:                tws,
-		lws:                lws,
+		transferWorkers:    tws,
+		watchdogs:          lws,
+		archivers:          aws,
 		id:                 id,
-		sched:              sched,
+		schdulers:          sched,
 		transfers:          make(map[string]*proto.TransferDetails),
 		usersTransfers:     make(map[string]map[uuid.UUID]bool),
 		tMutex:             sync.RWMutex{},
@@ -317,6 +323,32 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 		eMutex:             sync.RWMutex{},
 	}
 
+	// add root user to etcd if it doesn't already exist
+	s.em.AddRoot()
+
+	// TESTING DO NOT MERGE
+	transfers := []*proto.TransferDetails{}
+
+	s.log.Info("adding test transfers to etcd")
+	for j := 0; j < 10; j++ {
+		for i := 0; i < 1000; i++ {
+			transfer := proto.NewTransferDetails()
+
+			transfer.State = proto.TransferState_TRANSFER_INIT
+			transfer.Source = []string{fmt.Sprintf("/mnt/fs_2/bar/dir/file_%d", i)}
+			transfer.Destination = "/mnt/fs_1/foo/dir/"
+			transfer.Active = true
+			transfer.User = "testuser"
+			transfer.CreatedTime = timestamppb.Now()
+			transfer.Action = actions.Action_COPY
+			transfer.Expiry = timestamppb.New(time.Now().Add(300 * time.Minute))
+
+			transfers = append(transfers, transfer)
+		}
+	}
+
+	s.em.SubmitTransfers(transfers)
+
 	// add startup job to jobs wait group
 	s.jobs.Add(1)
 
@@ -332,7 +364,7 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 }
 
 // StartConduitServer is the main entrypoint of conduit
-func (s *ConduitServer) StartConduitServer(clearEtcd bool) error {
+func (s *ConduitServer) StartConduitServer() error {
 	// monitor for linux sigterm
 	go s.signalHandler()
 
@@ -347,79 +379,40 @@ func (s *ConduitServer) StartConduitServer(clearEtcd bool) error {
 		log.Fatalf("no etcd endpoints provided, check config")
 	}
 
-	// get the status from etcd, if we get an error from the first endpoint, try the next one
-	var status *clientv3.StatusResponse
-	var cr int64
-	for i, e := range endpoints {
-		status, cr, err = s.em.GetStatus(e)
+	// err = s.lws[0].CleanupETCD()
+	// if err != nil {
+	// 	s.log.Fatalf("failed to cleanup etcd: %v", err)
+	// }
+
+	transfers, rev, err := s.em.GetAllTransfers()
+	if err != nil {
+		return fmt.Errorf("failed to get all existing transfers from etcd: %v", err)
+	}
+
+	s.log.Infof("found %v transfers already in etcd", len(transfers))
+
+	// add transfers to transfers
+	s.tMutex.Lock()
+	s.transfers = transfers
+	// add transfers to user transfers
+	for _, td := range transfers {
+		if len(s.usersTransfers[td.GetUser()]) == 0 {
+			s.usersTransfers[td.GetUser()] = make(map[uuid.UUID]bool)
+		}
+
+		tid, err := uuid.Parse(td.GetTransferID())
 		if err != nil {
-			tErr := fmt.Errorf("failed to get etcd status: %v", err)
-			s.log.Warn(tErr)
-			if i == len(endpoints)-1 {
-				return tErr
-			} else {
-				continue
-			}
-		} else {
-			break
+			s.log.Errorf("failed to parse transfer id [%s]: %v", td.GetTransferID(), err)
 		}
+		s.usersTransfers[td.GetUser()][tid] = true
 	}
-	s.log.Debugf("etcd status: %+v", status)
-	s.log.Infof("etcd compact revision: %+v", cr)
 
-	if status.Header.GetRevision() != cr {
-		if clearEtcd {
-			s.log.Warn("Clearing ETCD!")
-			// delete transfer and lease areas in etcd
-			// only for debugging
-			_, err := s.em.DeletePrefix(proto.TransferPrefix)
-			if err != nil {
-				return fmt.Errorf("error removing all transfers currently in etcd: %v", err)
-			}
-			// only for debugging
-			_, err = s.em.DeletePrefix(proto.LeasePrefix)
-			if err != nil {
-				return fmt.Errorf("error removing all leases currently in etcd: %v", err)
-			}
-
-			// compact everything in etcd
-			_, err = s.em.CompactRevision(status.Header.GetRevision())
-			if err != nil {
-				return fmt.Errorf("failed to compact etcd: %v", err)
-			}
-		} else {
-			transfers, err := s.em.GetAllTransfers(cr, status.Header.GetRevision())
-			if err != nil {
-				return fmt.Errorf("failed to get all existing transfers from etcd: %v", err)
-			}
-
-			s.log.Info("found %v transfers already in etcd", len(transfers))
-
-			// add transfers to transfers
-			s.tMutex.Lock()
-			s.transfers = transfers
-			// add transfers to user transfers
-			for _, td := range transfers {
-				if len(s.usersTransfers[td.GetUser()]) == 0 {
-					s.usersTransfers[td.GetUser()] = make(map[uuid.UUID]bool)
-				}
-
-				tid, err := uuid.Parse(td.GetTransferID())
-				if err != nil {
-					s.log.Errorf("failed to parse transfer id [%s]: %v", td.GetTransferID(), err)
-				}
-				s.usersTransfers[td.GetUser()][tid] = true
-			}
-
-			s.tMutex.Unlock()
-		}
-	} else {
-		s.log.Info("etcd current revision is the same as the compact revision")
-	}
+	s.tMutex.Unlock()
 
 	// have etcd mangager start watching the transfer and lease prefixes
 	wctx, wCancel := context.WithCancelCause(context.Background())
-	go s.em.StartWatchChannels(status.Header.GetRevision(), wCancel)
+	go s.em.StartWatchChannels(rev, wCancel)
+	go s.em.StartUpdatingExpiries(wctx)
 	defer s.em.CloseClient()
 
 	grpcLis, err := net.Listen("tcp", s.grpcAddr)
@@ -451,14 +444,14 @@ func (s *ConduitServer) StartConduitServer(clearEtcd bool) error {
 		}()
 	}
 
-	for _, sch := range s.sched {
+	for _, sch := range s.schdulers {
 		err := sch.StartScheduler()
 		if err != nil {
 			log.Fatalf("failed to start scheduler: %v", err)
 		}
 	}
 
-	for _, tw := range s.tws {
+	for _, tw := range s.transferWorkers {
 		err := tw.StartTransferWorker()
 		if err != nil {
 			log.Fatalf("failed to start transfer worker: %v", err)
@@ -468,10 +461,17 @@ func (s *ConduitServer) StartConduitServer(clearEtcd bool) error {
 	// check if any transfers in etcd need to be archived
 	go s.archiveTransfers()
 
-	for _, wd := range s.lws {
+	for _, wd := range s.watchdogs {
 		err := wd.StartWatchdog()
 		if err != nil {
 			log.Fatalf("failed to start watchdog: %v", err)
+		}
+	}
+
+	for _, a := range s.archivers {
+		err := a.StartArchiver()
+		if err != nil {
+			log.Fatalf("failed to start archiver: %v", err)
 		}
 	}
 
@@ -723,7 +723,7 @@ func (s *ConduitServer) pauseConduit() error {
 
 	var wdwg sync.WaitGroup
 	var wdErr error
-	for _, wd := range s.lws {
+	for _, wd := range s.watchdogs {
 		wdwg.Add(1)
 		go func(twd *watchdog.Watchdog) {
 			defer wdwg.Done()
@@ -737,9 +737,25 @@ func (s *ConduitServer) pauseConduit() error {
 
 	s.log.Info("all watchdogs stopped")
 
+	var awg sync.WaitGroup
+	var aErr error
+	for _, a := range s.archivers {
+		awg.Add(1)
+		go func(ta *archive.Archiver) {
+			defer awg.Done()
+			err := ta.StartArchiver()
+			if err != nil {
+				aErr = err
+			}
+		}(a)
+	}
+	awg.Wait()
+
+	s.log.Info("all archivers stopped")
+
 	var twwg sync.WaitGroup
 	var twErr error
-	for _, tw := range s.tws {
+	for _, tw := range s.transferWorkers {
 		twwg.Add(1)
 		go func(ttw *transferworker.TransferWorker) {
 			defer twwg.Done()
@@ -755,7 +771,7 @@ func (s *ConduitServer) pauseConduit() error {
 
 	var swg sync.WaitGroup
 	var sErr error
-	for _, s := range s.sched {
+	for _, s := range s.schdulers {
 		swg.Add(1)
 		go func(ts *scheduler.Scheduler) {
 			defer swg.Done()
@@ -774,6 +790,13 @@ func (s *ConduitServer) pauseConduit() error {
 		s.serverState = proto.ServerState_SERVER_ERROR
 		s.ssMutex.Unlock()
 		return fmt.Errorf("failed to stop watchdog: %v", wdErr)
+	}
+
+	if aErr != nil {
+		s.ssMutex.Lock()
+		s.serverState = proto.ServerState_SERVER_ERROR
+		s.ssMutex.Unlock()
+		return fmt.Errorf("failed to stop archiver: %v", aErr)
 	}
 
 	if twErr != nil {
@@ -813,7 +836,7 @@ func (s *ConduitServer) drainConduit() error {
 	// tell all transfer workers to drain
 	var twwg sync.WaitGroup
 	var twErr error
-	for _, tw := range s.tws {
+	for _, tw := range s.transferWorkers {
 		twwg.Add(1)
 		go func(ttw *transferworker.TransferWorker) {
 			defer twwg.Done()
@@ -870,7 +893,7 @@ func (s *ConduitServer) resumeConduit() error {
 		sched = append(sched, s)
 	}
 
-	s.sched = sched
+	s.schdulers = sched
 
 	for _, sch := range sched {
 		err := sch.StartScheduler()
@@ -886,7 +909,7 @@ func (s *ConduitServer) resumeConduit() error {
 		tws = append(tws, ntw)
 	}
 
-	s.tws = tws
+	s.transferWorkers = tws
 
 	for _, tw := range tws {
 		err := tw.StartTransferWorker()
@@ -902,11 +925,14 @@ func (s *ConduitServer) resumeConduit() error {
 
 	numWatchdogs := viper.GetInt(defaults.ConfigConcurrentWatchdogsKey)
 	lws := []*watchdog.Watchdog{}
+	aws := []*archive.Archiver{}
 	for i := 0; i < numWatchdogs; i++ {
-		lws = append(lws, watchdog.NewWatchdog(s.log, s.cm, s.em, s.rm, sched))
+		lws = append(lws, watchdog.NewWatchdog(s.log, s.cm, s.em, sched))
+		aws = append(aws, archive.NewArchiver(s.log, s.cm, s.em, s.rm))
 	}
 
-	s.lws = lws
+	s.watchdogs = lws
+	s.archivers = aws
 
 	for _, wd := range lws {
 		err := wd.StartWatchdog()

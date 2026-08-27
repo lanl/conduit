@@ -14,7 +14,6 @@ import (
 	"github.com/lanl/conduit/internal/etcd"
 	"github.com/lanl/conduit/internal/logger"
 	cert "github.com/lanl/conduit/internal/pki"
-	"github.com/lanl/conduit/internal/server/rqlite"
 	"github.com/lanl/conduit/internal/server/scheduler"
 	"github.com/spf13/viper"
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -25,22 +24,25 @@ type Watchdog struct {
 	id  uuid.UUID
 	log *logger.ConduitLogger
 	em  *etcd.ETCDManager
-	rm  *rqlite.RqliteManager
 	cm  *cert.CertManager
 	sch []*scheduler.Scheduler
 
-	transfers map[uuid.UUID]context.CancelFunc // map of transfers that are currently being watched. key: transfer id value: cancelFunc for context
+	transfers map[uuid.UUID]*transferMonitor // map of transfers that are currently being watched. key: transfer id value: cancelFunc for context
 	tMutex    sync.RWMutex
-
-	jobs   map[uuid.UUID]bool // the jobs map is only used for stopping and keeps track of the events that the watchdog is actively handling
-	jMutex sync.RWMutex
 
 	stopWatchChan chan bool
 	state         proto.ServerState
 	sMutex        sync.Mutex // lock for watchdog state
+
+	cleanerCancel context.CancelCauseFunc
 }
 
-func NewWatchdog(cl *logger.ConduitLogger, cm *cert.CertManager, em *etcd.ETCDManager, rm *rqlite.RqliteManager, sch []*scheduler.Scheduler) *Watchdog {
+type transferMonitor struct {
+	id     uuid.UUID
+	cancel context.CancelFunc
+}
+
+func NewWatchdog(cl *logger.ConduitLogger, cm *cert.CertManager, em *etcd.ETCDManager, sch []*scheduler.Scheduler) *Watchdog {
 	id := uuid.New()
 
 	// change prefix for logger
@@ -51,10 +53,8 @@ func NewWatchdog(cl *logger.ConduitLogger, cm *cert.CertManager, em *etcd.ETCDMa
 		log:       l,
 		cm:        cm,
 		em:        em,
-		rm:        rm,
 		sch:       sch,
-		transfers: make(map[uuid.UUID]context.CancelFunc),
-		jobs:      make(map[uuid.UUID]bool),
+		transfers: make(map[uuid.UUID]*transferMonitor),
 		state:     proto.ServerState_SERVER_STARTING,
 	}
 
@@ -79,6 +79,10 @@ func (w *Watchdog) StartWatchdog() error {
 		return fmt.Errorf("failed to start watchdog: %v", err)
 	}
 	waitChan <- true
+
+	_, cancel := context.WithCancelCause(context.Background())
+	// go w.watchdogCleaner(ctx)
+	w.cleanerCancel = cancel
 
 	w.sMutex.Lock()
 	w.state = proto.ServerState_SERVER_RUNNING
@@ -127,7 +131,7 @@ func (w *Watchdog) watchTransfers(successChan chan bool, waitChan chan bool, sto
 				w.log.Errorf("transfer watch channel closed unexpectedly")
 				return
 			}
-			go w.handleWatchEvents(wresp.Events)
+			w.handleWatchEvents(wresp.Events)
 			if wresp.Canceled {
 				w.log.Errorf("received cancel message from watch stream: %+v", wresp)
 			}
@@ -150,6 +154,8 @@ func (w *Watchdog) StopWatchdog() error {
 		return fmt.Errorf("could not stop watchdog[%v] because it is not in the running state: %v", w.id, state)
 	}
 	w.sMutex.Unlock()
+
+	w.cleanerCancel(fmt.Errorf("stopping watchdog"))
 
 	w.log.Info("stopping watchdog")
 
@@ -174,93 +180,66 @@ func (w *Watchdog) StopWatchdog() error {
 
 	w.log.Info("stopped watching all transfers")
 
-	// check to see if all the jobs are stopped
-	jobsStopped := false
-	jobCount := 0
-	for !jobsStopped {
-		w.jMutex.Lock()
-		numJobs := len(w.jobs)
-		w.jMutex.Unlock()
+	return nil
+}
 
-		if numJobs == 0 {
-			jobsStopped = true
-		}
+func (w *Watchdog) watchdogCleaner(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
 
-		if !jobsStopped && jobCount != numJobs {
-			w.log.Debugf("waiting for %v jobs to complete", numJobs)
-			jobCount = numJobs
-		}
-		if !jobsStopped {
-			time.Sleep(100 * time.Millisecond)
+	for {
+		select {
+		case <-ctx.Done():
+			w.log.Infof("stopping watchdog cleaner")
+			return
+
+		case <-ticker.C:
+			err := w.CleanupETCD()
+			if err != nil {
+				w.log.Errorf("failed to cleanup etcd: %v", err)
+			}
 		}
 	}
-
-	w.log.Info("all watchdog jobs are complete")
-
-	return nil
 }
 
 // handleWatchEvents gets called anytime an event gets sent to the watch channel
 func (w *Watchdog) handleWatchEvents(evs []*clientv3.Event) {
 	for _, ev := range evs {
-		// w.log.Debugf("new event in transfers: %+v", ev)
+		if ev == nil || ev.Kv == nil {
+			continue
+		}
+
 		id, _, err := proto.ParseETCDTransfersKey(string(ev.Kv.Key))
 		if err != nil {
-			// this prints a lot of messages
-			// w.log.Debugf("Got non lease event: %v",  err)
+			continue
 		}
 
 		it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: id.String()})
 
-		if ev.Type == mvccpb.DELETE {
-			switch string(ev.Kv.Key) {
-			case it.ETCDArchiveStateKey():
-				w.stopWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
-			}
-		} else if ev.Type == mvccpb.PUT {
-			switch string(ev.Kv.Key) {
-			case it.ETCDArchiveStateKey():
-				switch string(ev.Kv.Value) {
-				case proto.ArchiveState_ARCHIVE_READY.String():
-					eventID := uuid.New()
-					w.jMutex.Lock()
-					w.jobs[eventID] = true
-					w.jMutex.Unlock()
+		key := string(ev.Kv.Key)
+		value := string(ev.Kv.Value)
 
-					go w.archiveTransfer(it, eventID)
-					fallthrough
-				case proto.ArchiveState_ARCHIVE_SUBMIT.String():
-					w.startWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
-				case proto.ArchiveState_ARCHIVE_COMPLETE.String():
-					fallthrough
-				case proto.ArchiveState_ARCHIVE_ERROR.String():
-					w.stopWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
-				}
+		switch ev.Type {
+		case mvccpb.DELETE:
+			// A finalized transfer will eventually be deleted by the archiver. Stop any stale monitor if the transfer's state or expiry disappears.
+			switch key {
+			case it.ETCDStateKey(), it.ETCDExpiryKey():
+				w.stopWatchingTransfer(it, key, value)
+			}
+
+		case mvccpb.PUT:
+			switch key {
 			case it.ETCDPausedStateKey():
 				fallthrough
 			case it.ETCDStateKey():
-				switch string(ev.Kv.Value) {
+				switch value {
 				case proto.TransferState_TRANSFER_ERROR.String():
-					w.stopWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
+					fallthrough
 				case proto.TransferState_TRANSFER_FINALIZED.String():
-					// TRANSFER_FINALIZED does not necessarily mean the watchdog is done.
-					// Archiving may still be in progress and may require lease recovery.
-					t, _, err := w.em.GetTransfer(id)
-					if err != nil {
-						w.log.Errorf("failed to get transfer[%s] while handling finalized state: %v", it.GetTransferID(), err)
+					// Terminal transfers are no longer the watchdog's
+					// responsibility. Archival is handled independently.
+					w.stopWatchingTransfer(it, key, value)
 
-						// Important: don't stop an existing watcher when we don't know
-						// whether archive recovery is still required.
-						break
-					}
-
-					switch t.GetArchiveState() {
-					case proto.ArchiveState_ARCHIVE_READY, proto.ArchiveState_ARCHIVE_SUBMIT:
-						w.log.Debugf("transfer[%s] is finalized but archive is still active [%s]; continuing watchdog", it.GetTransferID(), t.GetArchiveState())
-						w.startWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
-					default:
-						w.stopWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
-					}
 				case proto.TransferState_TRANSFER_NONE.String():
 					fallthrough
 				case proto.TransferState_TRANSFER_INIT.String():
@@ -302,10 +281,10 @@ func (w *Watchdog) handleWatchEvents(evs []*clientv3.Event) {
 				case proto.TransferState_TRANSFER_DATA_SUBMITTED.String():
 					fallthrough
 				case proto.TransferState_TRANSFER_DATA_TRANSFERRING.String():
-					// start watching
-					w.startWatchingTransfer(it, string(ev.Kv.Key), string(ev.Kv.Value))
+					w.startWatchingTransfer(it, key, value)
+
 				default:
-					w.log.Errorf("received unknown transfer[%s] state: %v=%v", it.GetTransferID(), string(ev.Kv.Key), string(ev.Kv.Value))
+					w.log.Errorf("received unknown transfer[%s] state: %s=%s", it.GetTransferID(), key, value)
 				}
 			}
 		}
@@ -314,7 +293,6 @@ func (w *Watchdog) handleWatchEvents(evs []*clientv3.Event) {
 
 // startWatchingLease gets called when a state matches when we should start watching the expiry of that lease
 func (w *Watchdog) startWatchingTransfer(it proto.IncompleteTransfer, key string, value string) {
-	// get transfer id
 	id, err := uuid.Parse(it.GetTransferID())
 	if err != nil {
 		w.log.Errorf("failed to parse transfer id from [%v]: %v", it.GetTransferID(), err)
@@ -322,18 +300,27 @@ func (w *Watchdog) startWatchingTransfer(it proto.IncompleteTransfer, key string
 	}
 
 	w.tMutex.Lock()
-	// check if lease is already being monitored
-	if _, ok := w.transfers[id]; !ok {
-		ctx, cancel := context.WithCancel(context.Background())
-		w.transfers[id] = cancel
-		w.tMutex.Unlock()
-		// start watching this lease
-		w.log.Debugf("starting to monitor transfer[%s] %s = %s", it.GetTransferID(), key, value)
-		go w.monitorTransferExpiry(it, ctx)
-	} else {
+
+	if _, ok := w.transfers[id]; ok {
 		w.log.Debugf("transfer[%s] is already being monitored", it.GetTransferID())
 		w.tMutex.Unlock()
+		return
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	monitor := &transferMonitor{
+		id:     uuid.New(),
+		cancel: cancel,
+	}
+
+	w.transfers[id] = monitor
+
+	w.tMutex.Unlock()
+
+	w.log.Debugf("starting to monitor transfer[%s] %s = %s", it.GetTransferID(), key, value)
+
+	go w.monitorTransferExpiry(it, ctx, monitor.id)
 }
 
 // stopWatchingLease gets called when a state matches when we should stop watching the expiry of that lease
@@ -347,8 +334,8 @@ func (w *Watchdog) stopWatchingTransfer(it proto.IncompleteTransfer, key string,
 
 	w.tMutex.Lock()
 	// check if we are even monitoring this transfer
-	if cancel, ok := w.transfers[id]; ok {
-		cancel()
+	if tm, ok := w.transfers[id]; ok {
+		tm.cancel()
 		delete(w.transfers, id)
 		w.log.Debugf("stopping monitoring transfer[%s] %s = %s", it.GetTransferID(), key, value)
 	}
@@ -356,20 +343,39 @@ func (w *Watchdog) stopWatchingTransfer(it proto.IncompleteTransfer, key string,
 }
 
 // monitorLeaseExpiry will monitor a lease's expiry by sleeping until the expiration time and then checking if it's changed
-func (w *Watchdog) monitorTransferExpiry(it proto.IncompleteTransfer, ctx context.Context) {
-	// get transfer id
+func (w *Watchdog) monitorTransferExpiry(it proto.IncompleteTransfer, ctx context.Context, monitorID uuid.UUID) {
 	id, err := uuid.Parse(it.GetTransferID())
 	if err != nil {
 		w.log.Errorf("failed to parse transfer id from [%v]: %v", it.GetTransferID(), err)
 		return
 	}
 
+	defer func() {
+		w.tMutex.Lock()
+
+		// Only remove the entry if it still belongs to us.
+		if m, ok := w.transfers[id]; ok && m.id == monitorID {
+			delete(w.transfers, id)
+		}
+
+		w.tMutex.Unlock()
+
+		w.log.Debugf("stopping monitor loop for transfer[%v]", it.GetTransferID())
+	}()
+
 monitorLoop:
 	for {
 		// check if lease is still in w.transfers
 		w.tMutex.RLock()
-		_, found := w.transfers[id]
+		monitor, found := w.transfers[id]
+		currentMonitor := found && monitor.id == monitorID
 		w.tMutex.RUnlock()
+
+		if !currentMonitor {
+			w.log.Debugf("transfer[%s] monitor[%s] is no longer current", it.GetTransferID(), monitorID)
+			break monitorLoop
+		}
+
 		if found {
 			// w.log.Debugf("transfer[%s] still in \"transfers\"", it.GetTransferID())
 
@@ -404,7 +410,8 @@ monitorLoop:
 					}
 				}
 
-				if expiryTime.After(time.Now()) {
+				now := time.Now()
+				if expiryTime.After(now) {
 					// the lease is still valid. Lets sleep until it expires
 					w.log.Debugf("transfer[%s] still valid. sleeping for %v", it.GetTransferID(), time.Until(expiryTime.Add(10*time.Second)))
 					select {
@@ -417,29 +424,26 @@ monitorLoop:
 				} else {
 					// the transfer expired
 					t, _, err := w.em.GetTransfer(id)
-
 					if err != nil {
+						if ctx.Err() != nil {
+							break monitorLoop
+						}
+
 						w.log.Errorf("failed to get transfer[%s] from etcd: %v", it.GetTransferID(), err)
 					} else {
 						w.log.Debugf("transfer[%s] state: %s", it.GetTransferID(), t.GetState())
-						w.log.Debugf("transfer[%s] archive: %s", it.GetTransferID(), t.GetArchiveState())
 						w.log.Debugf("transfer[%s] expiry: %s", it.GetTransferID(), t.GetExpiry().AsTime().Format(time.RFC3339))
 
+						// The state watch normally handles this, but this protects against
+						// races where the monitor has already woken up when finalization occurs.
+						if t.GetState() == proto.TransferState_TRANSFER_FINALIZED || t.GetState() == proto.TransferState_TRANSFER_ERROR {
+							break monitorLoop
+						}
+
 						// check if the transfer expired in a state that we can recover from
-						var rollbackErr error
-						switch {
-						// transfer state
-						case t.GetState() == proto.TransferState_TRANSFER_WAITING_FOR_LEASE:
+						if t.GetState() == proto.TransferState_TRANSFER_WAITING_FOR_LEASE {
 							// the transfer expired while waiting for lease. Push the state back to validation complete
-							rollbackErr = w.em.RollbackState(t, proto.TransferState_TRANSFER_WAITING_FOR_LEASE, proto.TransferState_TRANSFER_VALIDATION_COMPLETE, etcd.Transfer, &expiryTime)
-							if rollbackErr != nil {
-								w.log.Error(rollbackErr)
-							} else {
-								continue monitorLoop
-							}
-						case t.GetArchiveState() == proto.ArchiveState_ARCHIVE_SUBMIT:
-							// the transfer expired while submitting to rqlite. Push the state back to archive ready
-							rollbackErr = w.em.RollbackState(t, proto.ArchiveState_ARCHIVE_SUBMIT, proto.ArchiveState_ARCHIVE_READY, etcd.Archive, &expiryTime)
+							rollbackErr := w.em.RollbackState(t, proto.TransferState_TRANSFER_WAITING_FOR_LEASE, proto.TransferState_TRANSFER_VALIDATION_COMPLETE, etcd.Transfer, &expiryTime)
 							if rollbackErr != nil {
 								w.log.Error(rollbackErr)
 							} else {
@@ -449,11 +453,38 @@ monitorLoop:
 					}
 
 					// expire the lease
-					w.log.Debugf("transfer[%s] no longer valid [%s] vs [%s]. expiring...", it.GetTransferID(), expiryTime, time.Now())
-					err = w.expireTransfer(t, it, expiryTime)
+					w.log.Infof("transfer[%s] no longer valid [%s] vs [%s]. expiring...", it.GetTransferID(), expiryTime, now)
+					successful, currentExpiry, jobPending, err := w.expireTransfer(it, expiryTime)
 					if err != nil {
 						w.log.Errorf("failed to expire transfer[%s]: %v", it.GetTransferID(), err)
+						break monitorLoop
 					}
+					if successful {
+						break monitorLoop
+					}
+
+					if jobPending {
+						w.log.Debugf("transfer[%s] is expired but still has a pending scheduler job; continuing monitoring", it.GetTransferID())
+
+						// // Don't spin on an already-expired timestamp.
+						// select {
+						// case <-ctx.Done():
+						// 	break monitorLoop
+						// case <-time.After(30 * time.Second):
+						// 	continue monitorLoop
+						// }
+					}
+
+					// The transaction failed. Check whether the expiry changed
+					// underneath us.
+					if !currentExpiry.Equal(expiryTime) {
+						w.log.Debugf("transfer[%s] expiry changed from %s to %s while attempting expiry; continuing monitoring", it.GetTransferID(), expiryTime, currentExpiry)
+						continue monitorLoop
+					}
+
+					// The expiry did not change, so some other transaction
+					// predicate failed. The transfer no longer needs this
+					// expiry attempt.
 					break monitorLoop
 				}
 			}
@@ -464,41 +495,112 @@ monitorLoop:
 	}
 }
 
-// expireTransfer gets called when a transfers's expiry did not change and has expired
-func (w *Watchdog) expireTransfer(t *proto.TransferDetails, it proto.IncompleteTransfer, expiry time.Time) error {
-	// remove transfer from schedulers after this function
-	defer func() {
-		err := w.removeTransferFromSchedulers(it)
-		if err != nil {
-			w.log.Errorf("failed to remove transfer[%v] from schedulers: %v", it.GetTransferID(), err)
-		}
-	}()
-
+// expireTransfer gets called when a transfer's expiry did not change and has expired.
+func (w *Watchdog) expireTransfer(it proto.IncompleteTransfer, expiry time.Time) (successful bool, currentExpiryTime time.Time, jobPending bool, err error) {
 	expiryKey := it.ETCDExpiryKey()
 	stateKey := it.ETCDStateKey()
 	errorKey := it.ETCDErrorKey()
+	jobKey := it.ETCDJobsKey()
 
 	txn, _ := w.em.Txn()
 	txn.If(
-		clientv3.Compare(clientv3.Value(stateKey), "!=", proto.TransferState_TRANSFER_TEARDOWN_COMPLETE.String()),
-		clientv3.Compare(clientv3.Value(errorKey), "!=", proto.Error_ERROR_LEASE_EXPIRED.String()),
+		clientv3.Compare(clientv3.Value(stateKey), "!=", proto.TransferState_TRANSFER_FINALIZED.String()),
+		clientv3.Compare(clientv3.Value(stateKey), "!=", proto.TransferState_TRANSFER_ERROR.String()),
 		clientv3.Compare(clientv3.Value(errorKey), "=", proto.Error_ERROR_NONE.String()),
 		clientv3.Compare(clientv3.Value(expiryKey), "=", expiry.Format(time.RFC3339)),
+		clientv3.Compare(clientv3.CreateRevision(jobKey), "=", 0),
 	)
-	txn.Then(clientv3.OpPut(errorKey, proto.Error_ERROR_LEASE_EXPIRED.String()))
+
+	txn.Then(
+		clientv3.OpPut(errorKey, proto.Error_ERROR_LEASE_EXPIRED.String()),
+	)
+
+	// If the transaction fails, retrieve the values that caused it
+	// to fail so we can determine whether the transfer should still run.
+	txn.Else(
+		clientv3.OpGet(stateKey),
+		clientv3.OpGet(errorKey),
+		clientv3.OpGet(expiryKey),
+		clientv3.OpGet(jobKey),
+	)
 
 	resp, err := txn.Commit()
 	if err != nil {
-		return fmt.Errorf("error committing transaction to etcd for transfer[%s]: %v", it.GetTransferID(), err)
-	}
-	if !resp.Succeeded {
-		w.log.Warnf("failed to expire transfer[%v], it was already marked as expired or expiry updated", it.GetTransferID())
-		return nil
-	} else {
-		w.log.Infof("successfully expired transfer[%v]", it.GetTransferID())
+		return false, time.Unix(0, 0), false, fmt.Errorf("error committing transaction to etcd for transfer[%s]: %v", it.GetTransferID(), err)
 	}
 
-	return nil
+	if resp.Succeeded {
+		w.log.Infof("successfully expired transfer[%v]", it.GetTransferID())
+
+		// We successfully marked the transfer as lease-expired, so it
+		// must no longer be scheduled.
+		if err := w.removeTransferFromSchedulers(it); err != nil {
+			w.log.Errorf("failed to remove transfer[%v] from schedulers: %v", it.GetTransferID(), err)
+		}
+
+		return true, time.Unix(0, 0), false, nil
+	}
+
+	// The archiver may have deleted the transfer while this monitor was trying to expire it. If all of the required transfer keys are gone,
+	// there is nothing left for the watchdog to do.
+	if len(resp.Responses) == 4 &&
+		len(resp.Responses[0].GetResponseRange().Kvs) == 0 &&
+		len(resp.Responses[1].GetResponseRange().Kvs) == 0 &&
+		len(resp.Responses[2].GetResponseRange().Kvs) == 0 {
+
+		w.log.Debugf("transfer[%s] no longer exists in etcd", it.GetTransferID())
+
+		return false, time.Unix(0, 0), false, nil
+	}
+
+	if len(resp.Responses) != 4 ||
+		len(resp.Responses[0].GetResponseRange().Kvs) == 0 ||
+		len(resp.Responses[1].GetResponseRange().Kvs) == 0 ||
+		len(resp.Responses[2].GetResponseRange().Kvs) == 0 {
+
+		return false, time.Unix(0, 0), false, fmt.Errorf("failed to get state, error, expiry, and job for transfer[%s]: %+v", it.GetTransferID(), resp.Responses)
+	}
+
+	state := string(resp.Responses[0].GetResponseRange().Kvs[0].Value)
+	transferErr := string(resp.Responses[1].GetResponseRange().Kvs[0].Value)
+	currentExpiry := string(resp.Responses[2].GetResponseRange().Kvs[0].Value)
+
+	jobPending = len(resp.Responses[3].GetResponseRange().Kvs) > 0
+
+	currentExpiryTime, err = time.Parse(time.RFC3339, currentExpiry)
+	if err != nil {
+		return false, time.Unix(0, 0), false, fmt.Errorf("error parsing expiry from etcd[%s]: %v", string(resp.Responses[2].GetResponseRange().Kvs[0].Value), err)
+	}
+
+	// Somebody else completed or errored the transfer while we were
+	// attempting to expire it.
+	if transferErr != proto.Error_ERROR_NONE.String() ||
+		state == proto.TransferState_TRANSFER_FINALIZED.String() ||
+		state == proto.TransferState_TRANSFER_ERROR.String() {
+
+		if err := w.removeTransferFromSchedulers(it); err != nil {
+			w.log.Errorf("failed to remove transfer[%v] from schedulers: %v", it.GetTransferID(), err)
+		}
+
+		return false, currentExpiryTime, false, nil
+	}
+
+	if !expiry.Equal(currentExpiryTime) {
+		// somebody refreshed the lease while we were trying to expire it.
+		// The transfer is still active, so DO NOT remove it from the scheduler.
+		w.log.Debugf("transfer[%v] expiry changed from [%s] to [%s] while attempting to expire it", it.GetTransferID(), expiry.Format(time.RFC3339), currentExpiry)
+
+		return false, currentExpiryTime, false, nil
+	}
+
+	if jobPending {
+		w.log.Debugf("transfer[%v] expiry elapsed but scheduler job [%s] is still pending", it.GetTransferID(), jobKey)
+		return false, currentExpiryTime, true, nil
+	}
+
+	w.log.Debugf("did not expire transfer[%v]: state=%s error=%s expiry=%s", it.GetTransferID(), state, transferErr, currentExpiry)
+
+	return false, currentExpiryTime, false, nil
 }
 
 func (w *Watchdog) removeTransferFromSchedulers(it proto.IncompleteTransfer) error {
@@ -513,23 +615,75 @@ func (w *Watchdog) removeTransferFromSchedulers(it proto.IncompleteTransfer) err
 	return nil
 }
 
-func (w *Watchdog) compactETCD() error {
-	oRev, err := w.em.GetOldestTransfersRev()
+func (w *Watchdog) CleanupETCD() error {
+	// get the oldest compact revision key
+	oldestKV, currRev, err := w.em.GetOldestTransfersRev()
 	if err != nil {
 		return fmt.Errorf("failed to get oldest revision from etcd: %v", err)
 	}
 
-	curRev, err := w.em.CompactRevision(oRev)
-	if err != nil {
-		return fmt.Errorf("failed to compact to oldest safe rev[%v] cur[%v]: %v", oRev, curRev, err)
+	if oldestKV.CreateRevision == currRev {
+		// we're already compacted to the latest revision so no need for cleanup
+		return nil
 	}
 
-	w.log.Infof("successfully compacted etcd to revision: %v. current revision: %v", oRev, curRev)
-	return nil
-}
+	// get what events happened at this revision
+	evs, err := w.em.GetModifiedKeysAtRev(oldestKV.CreateRevision)
+	if err != nil {
+		return fmt.Errorf("failed to get modified keys at rev[%v]: %v", oldestKV.CreateRevision, err)
+	}
 
-func (w *Watchdog) removeJob(eventID uuid.UUID) {
-	w.jMutex.Lock()
-	delete(w.jobs, eventID)
-	w.jMutex.Unlock()
+	// check if each key is part of a transfer
+	// if it is, check if that transfer is still active and its archive status
+	// if it is a lone key, log it and delete it
+	for _, ev := range evs {
+		id, _, err := proto.ParseETCDTransfersKey(string(ev.Kv.Key))
+		if err != nil {
+			return fmt.Errorf("failed to parse transfer id from transfers key during cleanup: %v", err)
+		}
+
+		t, pErr, err := w.em.GetTransfer(id)
+		if err != nil {
+			switch pErr {
+			case proto.Error_ERROR_CONDUIT_INTERNAL:
+				// if there is a failure to parse the transfer, lets log and delete this key
+				w.log.Warnf("error while parsing transfer from key. deleting key from etcd: %v", string(ev.Kv.Key))
+				_, err := w.em.Delete(string(ev.Kv.Key))
+				if err != nil {
+					return fmt.Errorf("failed to delete key[%v] from etcd: %v", string(ev.Kv.Key), err)
+				}
+
+				continue
+
+			case proto.Error_ERROR_ETCD_CONNECTION:
+				return fmt.Errorf("failed to get transfer from etcd: %v", err)
+			}
+		}
+
+		// there is a transfer in etcd
+		if !t.GetActive() {
+			delete := false
+			switch {
+			case t.GetState() == proto.TransferState_TRANSFER_NONE:
+				// the transfer state is none which could mean this is a lone key in etcd. log and delete it
+				delete = true
+				w.log.Warnf("Transfer state in etcd is NONE. deleting key from etcd: %v = %v", string(ev.Kv.Key), string(ev.Kv.Value))
+			case t.GetArchiveState() == proto.ArchiveState_ARCHIVE_NONE:
+				// the archive state is none which could mean this is a lone key in etcd. log and delete it
+				delete = true
+				w.log.Warnf("Archive state in etcd is NONE. deleting key from etcd: %v", string(ev.Kv.Key))
+			}
+
+			if delete {
+				_, err := w.em.DeleteTransfer(id)
+				if err != nil {
+					return fmt.Errorf("failed to delete key[%v] from etcd: %v", string(ev.Kv.Key), err)
+				}
+
+				continue
+			}
+		}
+	}
+
+	return nil
 }
