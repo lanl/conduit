@@ -43,12 +43,12 @@ nodes:
     address: fta1.example.com
     port: 9000
     min-memory: 1GB
-    max-jobs: 4
+    max-jobs: 10
   fta2:
     address: 192.168.20.7
     port: 9000
     min-memory: 1GB
-    max-jobs: 4
+    max-jobs: 10
 rqlite:
   - hostname: rqlite-1.example.com
     ip: 192.168.20.31
