@@ -31,7 +31,7 @@ func (p *ArchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathI
 			},
 		}, nil
 	}
-	scriptRelPath := archiveConfig.StagerPath    // Ensure this script exists and is executable
+	scriptRelPath := archiveConfig.StagerPath // Ensure this script exists and is executable
 
 	// pathInfo.TransferPath tells the transfer plugin what final path to use for its transfer
 	pathInfo.TransferPath = pathInfo.ResolvedFTAPath
@@ -43,9 +43,9 @@ func (p *ArchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathI
 	}
 
 	// Arguments for the Archive Stager, set based on type of path passed in
-        args := []string{}
+	args := []string{}
 	ds, err := os.Lstat(pathInfo.OriginalUserPath)
-        if err != nil {
+	if err != nil {
 		p.log.Errorf("Bad Source path %s passed to Archive Setup: err = %v", pathInfo.OriginalUserPath, err)
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
@@ -58,9 +58,9 @@ func (p *ArchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathI
 		}, nil
 	}
 	if ds.IsDir() {
-	        args = []string{"stage", "--wait", "-R", "--concurrent", pathInfo.OriginalUserPath}
+		args = []string{"stage", "--wait", "-R", "--concurrent", pathInfo.OriginalUserPath}
 	} else {
-	        args = []string{"stage", pathInfo.OriginalUserPath}
+		args = []string{"stage", pathInfo.OriginalUserPath}
 	}
 	p.log.Debugf("Archive Stager Command Generator: %v %v", scriptRelPath, args)
 
