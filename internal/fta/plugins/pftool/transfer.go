@@ -13,7 +13,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
@@ -70,10 +69,6 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 
 	args := src
 	args = append(args, dst)
-	// args = append(args, "-v")
-	// -s will tell pftool to not follow symlinks
-	args = append(args, "-s")
-	// args = append(args, "--debug")
 
 	// add recursive flag if it was provided by the user
 	if _, ok := options[actions.RecursiveFlag]; ok {
@@ -86,12 +81,6 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 			args = append(args, "-R")
 		}
 	}
-
-	argTest := strings.Join(args, " ")
-	s := unsafe.Sizeof(argTest)
-	p.log.Debugf("size of args: %d", s)
-	realSize := len(argTest) + int(unsafe.Sizeof(argTest))
-	p.log.Debugf("real size of args: %d", realSize)
 
 	cmdContext, cmdCancel := context.WithCancelCause(context.Background())
 
@@ -109,6 +98,11 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 		}
 	}
 	pfcpLocation := pftoolConfig.PfcpPath
+
+	// append any config arguments
+	for _, arg := range pftoolConfig.PfcpArgs {
+		args = append(args, arg)
+	}
 
 	cmd := exec.CommandContext(cmdContext, pfcpLocation, args...)
 

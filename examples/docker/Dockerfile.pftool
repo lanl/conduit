@@ -4,7 +4,7 @@ RUN dnf install -y epel-release \
     && dnf group install -y "Development Tools" \
     && dnf install -y make wget git sudo gcc autoconf automake m4 libtool mpi openmpi-devel openssl-devel
 
-RUN git clone https://github.com/gransom/pftool.git /pftool \
+RUN git clone https://github.com/pftool/pftool.git /pftool \
     && cd /pftool \
     && export PATH=$PATH:/usr/lib64/openmpi/bin/ \
     && autoreconf -i \
