@@ -3,46 +3,36 @@
 package fta
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/internal/etcd"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/lanl/conduit/internal/logger"
 )
 
-func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em *etcd.ETCDManager, nodeList string) (pluginData *plugin.PluginData, _ plugin.PluginErrors) {
-	transferID, err := uuid.Parse(it.GetTransferID())
+func StartPluginSetup(log *logger.ConduitLogger, t *proto.TransferDetails, client *FTAClient, nodeList string) (*plugin.PluginData, *proto.FTAPluginErrors) {
+	transferID, err := uuid.Parse(t.GetTransferID())
 	if err != nil {
-		return nil, plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{{
+		return nil, &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{{
 				PErr:       proto.Error_ERROR_CONDUIT_INTERNAL,
-				ErrMessage: fmt.Errorf("failed to parse transfer id[%v]: %v", it.GetTransferID(), err),
+				ErrMessage: fmt.Sprintf("failed to parse transfer id[%v]: %v", t.GetTransferID(), err),
 			}},
 		}
 	}
 
-	// get action and options for transfer
-	action, options, err := em.GetActionAndOptions(it)
+	pluginData, err := plugin.DecodePluginData(bytes.NewReader(t.GetPluginData()))
 	if err != nil {
-		return pluginData, plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{{
-				PErr:       proto.Error_ERROR_ETCD_CONNECTION,
-				ErrMessage: fmt.Errorf("failed to get action and options from etcd: %v", err),
-			}},
-		}
-	}
-
-	// get sources and destination for transfer
-	pluginData, err = em.GetPluginData(it)
-	if err != nil {
-		return nil, plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{{
-				PErr:       proto.Error_ERROR_ETCD_CONNECTION,
-				ErrMessage: fmt.Errorf("failed to get source and destination from etcd: %v", err),
-			}},
+		return nil, &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
+				{
+					PErr:       proto.Error_ERROR_ETCD_CONNECTION,
+					ErrMessage: fmt.Sprintf("failed to decode plugin data in transfer details: %v", err),
+				},
+			},
 		}
 	}
 
@@ -52,18 +42,18 @@ func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em
 		return nil, pluginErrs
 	}
 
-	updater := NewUpdater(log, em, it)
+	updater := NewUpdater(log, client, t)
 
 	// run the setup for each
 	var wg sync.WaitGroup
 
-	var pluginErrors plugin.PluginErrors
+	pluginErrors := &proto.FTAPluginErrors{}
 	var errorsLock sync.Mutex
 
 	wg.Add(1)
 	go func(destPluginInfo *plugin.PluginPathInfo) {
 		defer wg.Done()
-		dpErrors, newDpInfo := destPluginInfo.Plugin.Setup(transferID, destPluginInfo, proto.LeaseType_DESTINATION, action, options, true, updater.updateTransferProgress)
+		dpErrors, newDpInfo := destPluginInfo.Plugin.Setup(transferID, destPluginInfo, proto.LeaseType_DESTINATION, t.GetAction(), t.GetOptions(), true, updater.updateTransferProgress)
 		errorsLock.Lock()
 		pluginErrors.Errors = append(pluginErrors.Errors, dpErrors.Errors...)
 		pluginErrors.Warnings = append(pluginErrors.Warnings, dpErrors.Warnings...)
@@ -77,7 +67,7 @@ func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em
 		wg.Add(1)
 		go func(destsPluginInfo *plugin.PluginPathInfo) {
 			defer wg.Done()
-			dpErrors, newDpInfo := destsPluginInfo.Plugin.Setup(transferID, destsPluginInfo, proto.LeaseType_DESTINATION, action, options, false, updater.updateTransferProgress)
+			dpErrors, newDpInfo := destsPluginInfo.Plugin.Setup(transferID, destsPluginInfo, proto.LeaseType_DESTINATION, t.GetAction(), t.GetOptions(), false, updater.updateTransferProgress)
 			errorsLock.Lock()
 			pluginErrors.Errors = append(pluginErrors.Errors, dpErrors.Errors...)
 			pluginErrors.Warnings = append(pluginErrors.Warnings, dpErrors.Warnings...)
@@ -92,7 +82,7 @@ func StartPluginSetup(log *logger.ConduitLogger, it proto.IncompleteTransfer, em
 		wg.Add(1)
 		go func(srcPluginInfo *plugin.PluginPathInfo) {
 			defer wg.Done()
-			spErrors, newSpInfo := srcPluginInfo.Plugin.Setup(transferID, srcPluginInfo, proto.LeaseType_SOURCE, action, options, false, updater.updateTransferProgress)
+			spErrors, newSpInfo := srcPluginInfo.Plugin.Setup(transferID, srcPluginInfo, proto.LeaseType_SOURCE, t.GetAction(), t.GetOptions(), false, updater.updateTransferProgress)
 			errorsLock.Lock()
 			pluginErrors.Errors = append(pluginErrors.Errors, spErrors.Errors...)
 			pluginErrors.Warnings = append(pluginErrors.Warnings, spErrors.Warnings...)

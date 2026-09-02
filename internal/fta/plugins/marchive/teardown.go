@@ -13,16 +13,16 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-func (p *MarchivePlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) plugin.PluginErrors {
-	marchiveConfig := DefaultMarchivePluginConfig()
-	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, &marchiveConfig)
+func (p *MarchivePlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) *proto.FTAPluginErrors {
+	marchiveConfig := &ViperMarchivePluginConfig{}
+	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, marchiveConfig)
 	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					LeasePath:  "",
 					PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
-					ErrMessage: fmt.Errorf("failed to get marchive config: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get marchive config: %v", err),
 				},
 			},
 		}
@@ -32,7 +32,7 @@ func (p *MarchivePlugin) Teardown(transferID uuid.UUID, transferDetails *proto.T
 	// If the file path is not a SOURCE for the transfer -> no need to
 	// clean up the Tape Manager tree
 	if pathType != proto.LeaseType_SOURCE {
-		return plugin.PluginErrors{}
+		return &proto.FTAPluginErrors{}
 	}
 
 	// Arguments for the Tape Request Generator
@@ -41,25 +41,25 @@ func (p *MarchivePlugin) Teardown(transferID uuid.UUID, transferDetails *proto.T
 	cmd := exec.Command(scriptRelPath, args...)
 	cmd.Env = os.Environ() // Make sure command is using existing environment
 
-	updateTransferProgress(proto.ETCDStatusDetails{
+	updateTransferProgress(&proto.ETCDStatusDetails{
 		PluginStatus: fmt.Sprintf("(teardown) tape request cleanup for %v started", pathInfo.OriginalUserPath),
 	})
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		p.log.Errorf("Error running script: %v\nOutput: %s", err, output)
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					LeasePath:  "",
 					PErr:       proto.Error_ERROR_REMOVE_FAILED,
-					ErrMessage: fmt.Errorf("errors removing Tape Manager request files: %v", err),
+					ErrMessage: fmt.Sprintf("errors removing Tape Manager request files: %v", err),
 				},
 			},
 		}
 	}
 
-	updateTransferProgress(proto.ETCDStatusDetails{
+	updateTransferProgress(&proto.ETCDStatusDetails{
 		PluginStatus: fmt.Sprintf("(teardown) tape request cleanup for %v complete", pathInfo.OriginalUserPath),
 	})
-	return plugin.PluginErrors{}
+	return &proto.FTAPluginErrors{}
 }

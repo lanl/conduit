@@ -477,12 +477,6 @@ func (a *Archiver) archiveTransfer(it proto.IncompleteTransfer, eventID uuid.UUI
 		return
 	}
 
-	// The transfer is now durably in rqlite and gone from etcd.
-
-	if err := a.em.RemoveTransferUser(tid.String()); err != nil {
-		a.log.Errorf("failed to remove etcd user for transfer[%s]: %v", it.GetTransferID(), err)
-	}
-
 	// Success: remove the claim immediately rather than waiting for expiry.
 	if err := a.em.RevokeLease(claim.leaseID); err != nil {
 		a.log.Warnf("failed to revoke archive claim lease[%v] for transfer[%s]: %v", claim.leaseID, it.GetTransferID(), err)

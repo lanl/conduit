@@ -25,7 +25,7 @@ func (em *ETCDManager) RemoveErrant(user string, errantPath string) (succeeded b
 		clientv3.OpPut(errantPathKey, proto.PurgeValue.AsTime().Format(time.RFC3339)),
 	}
 
-	resp, err := em.RetryTxn(&compares, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := em.RetryTxn(&compares, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 
 	if err != nil {
 		return false, fmt.Errorf("failed to set Purge value in etcd for [%v]: %v", errantPathKey, err)
@@ -50,7 +50,7 @@ func (em *ETCDManager) AddErrant(user string, errantPath string) (succeeded bool
 		clientv3.OpPut(errantPathKey, timestamppb.Now().AsTime().Format(time.RFC3339)),
 	}
 
-	resp, err := em.RetryTxn(&compares, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := em.RetryTxn(&compares, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 
 	if err != nil {
 		return false, fmt.Errorf("failed to set errant value in etcd for [%v]: %v", errantPathKey, err)

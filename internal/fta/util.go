@@ -3,6 +3,7 @@
 package fta
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -11,17 +12,14 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/etcd"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/lanl/conduit/internal/logger"
 	"github.com/sirupsen/logrus"
-	"github.com/spf13/viper"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 // ListenForKill will listen for a os kill signal (typically coming from the scheduler) and attempt to record the event in etcd
-func ListenForKill(it proto.IncompleteTransfer, em *etcd.ETCDManager, sc proto.SchedulerCommand) {
+func ListenForKill(it proto.IncompleteTransfer, client *FTAClient) {
 	exit := make(chan os.Signal, 1) // we need to reserve to buffer size 1, so the notifier are not blocked
 	signal.Notify(exit, os.Interrupt, syscall.SIGTERM)
 
@@ -36,40 +34,31 @@ func ListenForKill(it proto.IncompleteTransfer, em *etcd.ETCDManager, sc proto.S
 	txnActions = append(txnActions, clientv3.OpPut(it.ETCDErrorKey(), proto.Error_ERROR_SCHEDULER.String()))
 	txnActions = append(txnActions, clientv3.OpPut(it.ETCDErrorMessageKey(), "received SIGTERM signal"))
 
-	retryCount := viper.GetInt(defaults.ConfigFTAVerifyRetryCountKey)
-	sleepDur := viper.GetDuration(defaults.ConfigFTAVerifySleepDurationKey)
-	resp, err := em.RetryTxn(&txnCompare, &txnActions, retryCount, sleepDur)
-	if err != nil || !resp.Succeeded {
+	errs := &proto.FTAPluginErrors{
+		Errors: []*proto.FTAPathError{{
+			PErr:       proto.Error_ERROR_SCHEDULER,
+			ErrMessage: "received SIGTERM signal",
+		},
+		},
+	}
+
+	ctx := context.Context(context.Background())
+	_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
+	if err != nil {
 		logrus.Fatalf("failed to set leases to error: %v", err)
 	}
 
-	os.Exit(62)
-}
-
-// getCommandStates will return the correlating "submitted", "running", and "complete" states for a given command
-func getCommandStates(command proto.SchedulerCommand) (submitted proto.StringableState, running proto.StringableState, complete proto.StringableState, _ error) {
-	switch command {
-	case proto.SchedulerCommand_VALIDATION:
-		return proto.TransferState_TRANSFER_VALIDATION_SUBMITTED, proto.TransferState_TRANSFER_VALIDATING, proto.TransferState_TRANSFER_VALIDATION_COMPLETE, nil
-	case proto.SchedulerCommand_SETUP:
-		return proto.TransferState_TRANSFER_SETUP_SUBMITTED, proto.TransferState_TRANSFER_SETUP, proto.TransferState_TRANSFER_SETUP_COMPLETE, nil
-	case proto.SchedulerCommand_TRANSFER:
-		return proto.TransferState_TRANSFER_DATA_SUBMITTED, proto.TransferState_TRANSFER_DATA_TRANSFERRING, proto.TransferState_TRANSFER_DATA_COMPLETE, nil
-	case proto.SchedulerCommand_TEARDOWN:
-		return proto.TransferState_TRANSFER_TEARDOWN_SUBMITTED, proto.TransferState_TRANSFER_TEARDOWN, proto.TransferState_TRANSFER_TEARDOWN_COMPLETE, nil
-	}
-
-	return proto.TransferState_TRANSFER_NONE, proto.TransferState_TRANSFER_NONE, proto.ArchiveState_ARCHIVE_NONE, fmt.Errorf("failed to get submitted state for command: %v", command)
+	os.Exit(0)
 }
 
 // getSrcAndDstValidationPlugins will get the validatino plugin for all sources and destination and verify the resolved paths still correlate to the plugin
-func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogger, sources []string, destination string) (sourcePlugins map[string]*plugin.PluginPathInfo, destinationPlugin *plugin.PluginPathInfo, _ plugin.PluginErrors) {
+func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogger, sources []string, destination string) (sourcePlugins map[string]*plugin.PluginPathInfo, destinationPlugin *plugin.PluginPathInfo, _ *proto.FTAPluginErrors) {
 	fscs, err := plugin.GetFSCsFromViper()
 	if err != nil {
-		return sourcePlugins, destinationPlugin, plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{{
+		return sourcePlugins, destinationPlugin, &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{{
 				PErr:       proto.Error_ERROR_CONDUIT_INTERNAL,
-				ErrMessage: fmt.Errorf("failed to get filesystem configurations from viper: %v", err),
+				ErrMessage: fmt.Sprintf("failed to get filesystem configurations from viper: %v", err),
 			},
 			},
 		}
@@ -78,7 +67,7 @@ func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogg
 	var wg sync.WaitGroup
 
 	type PluginResults struct {
-		PluginErrors plugin.PluginErrors
+		PluginErrors proto.FTAPluginErrors
 		PluginInfo   *plugin.PluginPathInfo
 	}
 
@@ -95,9 +84,9 @@ func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogg
 			PluginInfo: destinationPlugin,
 		}
 		if pathErr != nil {
-			pathErr.ErrMessage = fmt.Errorf("failed to get destination[%v] plugin: %v", destination, pathErr.ErrMessage)
-			destPluginResults.PluginErrors = plugin.PluginErrors{
-				Errors:   []*plugin.FTAPathError{pathErr},
+			pathErr.ErrMessage = fmt.Sprintf("failed to get destination[%v] plugin: %v", destination, pathErr.ErrMessage)
+			destPluginResults.PluginErrors = proto.FTAPluginErrors{
+				Errors:   []*proto.FTAPathError{pathErr},
 				Warnings: nil,
 			}
 
@@ -117,10 +106,10 @@ func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogg
 			}
 			srcPluginResultsLock.Unlock()
 			if pathErr != nil {
-				pathErr.ErrMessage = fmt.Errorf("failed to get source[%v] plugin: %v", goSource, pathErr.ErrMessage)
+				pathErr.ErrMessage = fmt.Sprintf("failed to get source[%v] plugin: %v", goSource, pathErr.ErrMessage)
 				srcPluginResultsLock.Lock()
-				srcPluginResults[goSource].PluginErrors = plugin.PluginErrors{
-					Errors:   []*plugin.FTAPathError{pathErr},
+				srcPluginResults[goSource].PluginErrors = proto.FTAPluginErrors{
+					Errors:   []*proto.FTAPathError{pathErr},
 					Warnings: nil,
 				}
 				srcPluginResultsLock.Unlock()
@@ -134,8 +123,8 @@ func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogg
 	wg.Wait()
 
 	// combine all errors together
-	allErrors := plugin.PluginErrors{
-		Errors: []*plugin.FTAPathError{},
+	allErrors := &proto.FTAPluginErrors{
+		Errors: []*proto.FTAPathError{},
 	}
 	if len(destPluginResults.PluginErrors.Errors) > 0 {
 		allErrors.Errors = append(allErrors.Errors, destPluginResults.PluginErrors.Errors...)
@@ -157,17 +146,17 @@ func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogg
 		return sourcePlugins, destinationPlugin, allErrors
 	}
 
-	return sourcePlugins, destinationPlugin, plugin.PluginErrors{}
+	return sourcePlugins, destinationPlugin, &proto.FTAPluginErrors{}
 }
 
 // getPathValidationPlugin is a recursive function that will find the validation plugin for a given path, initialize the plugin, check that it doesn't change with a resolved path, and find the correct plugin for any different resolved paths. It also verifies that the plugin has the validation capability
-func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, originalUserPath string, newUserPath string, fscs map[string]*plugin.FileSystemConfig, pathType proto.LeaseType) (*plugin.PluginPathInfo, *plugin.FTAPathError) {
+func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, originalUserPath string, newUserPath string, fscs map[string]*plugin.FileSystemConfig, pathType proto.LeaseType) (*plugin.PluginPathInfo, *proto.FTAPathError) {
 	fsn, fsc, pErr, err := plugin.GetFSCFromPath(newUserPath, fscs)
 	if err != nil {
-		return nil, &plugin.FTAPathError{
+		return nil, &proto.FTAPathError{
 			LeasePath:  originalUserPath,
 			PErr:       pErr,
-			ErrMessage: fmt.Errorf("failed to get filesystem configuration for path[%v]: %v", newUserPath, err),
+			ErrMessage: fmt.Sprintf("failed to get filesystem configuration for path[%v]: %v", newUserPath, err),
 		}
 	} else {
 		log.Debugf("using filesystem [%v] for path [%v]", fsn, newUserPath)
@@ -177,10 +166,10 @@ func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, or
 
 	pathPlugin, ok := PluginMap[pluginString]
 	if !ok {
-		return nil, &plugin.FTAPathError{
+		return nil, &proto.FTAPathError{
 			LeasePath:  originalUserPath,
 			PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
-			ErrMessage: fmt.Errorf("failed to find [%v] in plugin map. plugin [%v] is not supported in this version of conduit-fta", pluginString, pluginString),
+			ErrMessage: fmt.Sprintf("failed to find [%v] in plugin map. plugin [%v] is not supported in this version of conduit-fta", pluginString, pluginString),
 		}
 	}
 
@@ -206,10 +195,10 @@ func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, or
 		}
 	}
 	if !foundCap {
-		return nil, &plugin.FTAPathError{
+		return nil, &proto.FTAPathError{
 			LeasePath:  originalUserPath,
 			PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
-			ErrMessage: fmt.Errorf("this plugin[%v] does not support validation", pluginString),
+			ErrMessage: fmt.Sprintf("this plugin[%v] does not support validation", pluginString),
 		}
 	}
 
@@ -225,10 +214,10 @@ func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, or
 }
 
 // getPathPlugins will get the plugin for a transfer that's already gone through the validation phase
-func getPathPlugins(transferID uuid.UUID, log *logger.ConduitLogger, currentStep plugin.PluginCapability, pluginData *plugin.PluginData) (*plugin.PluginData, plugin.PluginErrors) {
-	pluginErrors := plugin.PluginErrors{
-		Errors:   []*plugin.FTAPathError{},
-		Warnings: []*plugin.FTAPathError{},
+func getPathPlugins(transferID uuid.UUID, log *logger.ConduitLogger, currentStep plugin.PluginCapability, pluginData *plugin.PluginData) (*plugin.PluginData, *proto.FTAPluginErrors) {
+	pluginErrors := &proto.FTAPluginErrors{
+		Errors:   []*proto.FTAPathError{},
+		Warnings: []*proto.FTAPathError{},
 	}
 
 	// get base destination plugin
@@ -242,10 +231,10 @@ func getPathPlugins(transferID uuid.UUID, log *logger.ConduitLogger, currentStep
 
 	pathPlugin, pErr, err := getPluginFromString(log, transferID, currentStep, pluginString)
 	if err != nil {
-		pluginErrors.Errors = append(pluginErrors.Errors, &plugin.FTAPathError{
+		pluginErrors.Errors = append(pluginErrors.Errors, &proto.FTAPathError{
 			LeasePath:  pluginData.DestinationPluginInfo.OriginalUserPath,
 			PErr:       pErr,
-			ErrMessage: err,
+			ErrMessage: err.Error(),
 		})
 	}
 
@@ -263,10 +252,10 @@ func getPathPlugins(transferID uuid.UUID, log *logger.ConduitLogger, currentStep
 
 		pathPlugin, pErr, err := getPluginFromString(log, transferID, currentStep, pluginString)
 		if err != nil {
-			pluginErrors.Errors = append(pluginErrors.Errors, &plugin.FTAPathError{
+			pluginErrors.Errors = append(pluginErrors.Errors, &proto.FTAPathError{
 				LeasePath:  dppi.OriginalUserPath,
 				PErr:       pErr,
-				ErrMessage: err,
+				ErrMessage: err.Error(),
 			})
 		}
 
@@ -285,10 +274,10 @@ func getPathPlugins(transferID uuid.UUID, log *logger.ConduitLogger, currentStep
 
 		pathPlugin, pErr, err := getPluginFromString(log, transferID, currentStep, pluginString)
 		if err != nil {
-			pluginErrors.Errors = append(pluginErrors.Errors, &plugin.FTAPathError{
+			pluginErrors.Errors = append(pluginErrors.Errors, &proto.FTAPathError{
 				LeasePath:  sppi.OriginalUserPath,
 				PErr:       pErr,
-				ErrMessage: err,
+				ErrMessage: err.Error(),
 			})
 		}
 

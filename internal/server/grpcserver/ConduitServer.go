@@ -34,7 +34,6 @@ import (
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/etcd"
 	"github.com/lanl/conduit/internal/etcd/util"
-	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/logger"
 	cert "github.com/lanl/conduit/internal/pki"
 	"github.com/lanl/conduit/internal/server/archive"
@@ -56,6 +55,8 @@ var (
 	queryFields        = []string{}
 	adminWarning       = "This transfer has been manipulated by an admin"
 )
+
+var _ proto.ConduitApiServer = (*ConduitServer)(nil)
 
 type ConduitServer struct {
 	proto.UnimplementedConduitApiServer
@@ -325,29 +326,6 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 
 	// add root user to etcd if it doesn't already exist
 	s.em.AddRoot()
-
-	// TESTING DO NOT MERGE
-	transfers := []*proto.TransferDetails{}
-
-	s.log.Info("adding test transfers to etcd")
-	for j := 0; j < 10; j++ {
-		for i := 0; i < 1000; i++ {
-			transfer := proto.NewTransferDetails()
-
-			transfer.State = proto.TransferState_TRANSFER_INIT
-			transfer.Source = []string{fmt.Sprintf("/mnt/fs_2/bar/dir/file_%d", i)}
-			transfer.Destination = "/mnt/fs_1/foo/dir/"
-			transfer.Active = true
-			transfer.User = "testuser"
-			transfer.CreatedTime = timestamppb.Now()
-			transfer.Action = actions.Action_COPY
-			transfer.Expiry = timestamppb.New(time.Now().Add(300 * time.Minute))
-
-			transfers = append(transfers, transfer)
-		}
-	}
-
-	s.em.SubmitTransfers(transfers)
 
 	// add startup job to jobs wait group
 	s.jobs.Add(1)
@@ -743,7 +721,7 @@ func (s *ConduitServer) pauseConduit() error {
 		awg.Add(1)
 		go func(ta *archive.Archiver) {
 			defer awg.Done()
-			err := ta.StartArchiver()
+			err := ta.StopArchiver()
 			if err != nil {
 				aErr = err
 			}

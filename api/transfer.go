@@ -58,15 +58,6 @@ var PurgeValue = timestamppb.New(time.Time{})
 var etcdTransferKeyRegex = regexp.MustCompile(`transfers\/(\S+?)\/(?:(?:schedulerNodes)\/([^\s\/]+))?`)
 var etcdErrorKeyRegex = regexp.MustCompile(`errors\/(\S+?)\/(\S+)`)
 
-type ETCDStatusDetails struct {
-	Data         string `json:"data"`
-	Files        uint32 `json:"files"`
-	Bandwidth    string `json:"bandwidth"`
-	FilesChunks  uint32 `json:"filesChunks"`
-	Directories  uint32 `json:"directories"`
-	PluginStatus string `json:"pluginStatus"`
-}
-
 func (t *TransferDetails) getKey(key string) string {
 	if t.GetTransferID() == "" {
 		return ""
@@ -221,8 +212,8 @@ func (t *TransferDetails) ETCDJobsKey() string {
 	return JobsPrefix + t.GetTransferID()
 }
 
-// ETCDStatusDetails returns a json marshalled version of a transfer's status details to be put in ETCD
-func (t *TransferDetails) ETCDStatusDetails() ([]byte, error) {
+// ETCDStatusDetails returns the transfer's status details
+func (t *TransferDetails) ETCDStatusDetails() *ETCDStatusDetails {
 	etd := &ETCDStatusDetails{
 		Data:         t.DataTransferred,
 		Files:        t.FilesTransferred,
@@ -232,7 +223,12 @@ func (t *TransferDetails) ETCDStatusDetails() ([]byte, error) {
 		PluginStatus: t.PluginStatus,
 	}
 
-	return json.Marshal(etd)
+	return etd
+}
+
+// ETCDStatusDetailsBytes returns a json marshalled version of a transfer's status details to be put in ETCD
+func (t *TransferDetails) ETCDStatusDetailsBytes() ([]byte, error) {
+	return json.Marshal(t.ETCDStatusDetails())
 }
 
 // ParseETCDTransfersKey returns the transfer id, unescaped path of a lease, and a schdulerCommand from an etcd key

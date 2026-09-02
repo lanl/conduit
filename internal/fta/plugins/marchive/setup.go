@@ -17,16 +17,16 @@ import (
 // marchive-tmrequest script to generate READ request/jobs for the Marchive Tape Manager. This call
 // waits/hangs until this script completes, which occurs after the Tape Manager has completed all
 // READ jobs.
-func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
-	marchiveConfig := DefaultMarchivePluginConfig()
-	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, &marchiveConfig)
+func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (*proto.FTAPluginErrors, *plugin.PluginPathInfo) {
+	marchiveConfig := &ViperMarchivePluginConfig{}
+	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, marchiveConfig)
 	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					LeasePath:  "",
 					PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
-					ErrMessage: fmt.Errorf("failed to get marchive config: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get marchive config: %v", err),
 				},
 			},
 		}, nil
@@ -40,7 +40,7 @@ func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPath
 	// If the file path is not a SOURCE for the transfer -> no need to get the
 	// file from tape
 	if pathType != proto.LeaseType_SOURCE {
-		return plugin.PluginErrors{}, pathInfo
+		return &proto.FTAPluginErrors{}, pathInfo
 	}
 
 	// Arguments for the Tape Request Generator
@@ -50,26 +50,26 @@ func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPath
 	cmd := exec.Command(scriptRelPath, args...)
 	cmd.Env = os.Environ() // Make sure command is using existing environment
 
-	updateTransferProgress(proto.ETCDStatusDetails{
+	updateTransferProgress(&proto.ETCDStatusDetails{
 		PluginStatus: fmt.Sprintf("(setup) data staging for %v started", pathInfo.OriginalUserPath),
 	})
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		p.log.Errorf("Error running script %s: %v\nOutput: %v", scriptRelPath, err, output)
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					LeasePath:  "",
 					PErr:       proto.Error_ERROR_STAT_FAILED,
-					ErrMessage: fmt.Errorf("Tape Manager Command Generator non zero exit code: %v", err),
+					ErrMessage: fmt.Sprintf("Tape Manager Command Generator non zero exit code: %v", err),
 				},
 			},
 		}, nil
 	}
 
-	updateTransferProgress(proto.ETCDStatusDetails{
+	updateTransferProgress(&proto.ETCDStatusDetails{
 		PluginStatus: fmt.Sprintf("(setup) data staging for %v complete", pathInfo.OriginalUserPath),
 	})
 
-	return plugin.PluginErrors{}, pathInfo
+	return &proto.FTAPluginErrors{}, pathInfo
 }

@@ -3,6 +3,7 @@
 package ftacmd
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -51,37 +52,42 @@ var validateCmd = &cobra.Command{
 	Short: "start the validation process",
 	Long:  `This subcommand starts the validation process`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log, it, em, nodeList := fta.FTAInit(debug)
+		log, t, client, nodeList := fta.FTAInit(debug)
 
-		go fta.ListenForKill(it, em, proto.SchedulerCommand_VALIDATION)
+		go fta.ListenForKill(t, client)
 
-		pErr, err, expiryQuit := fta.StartPluginETCD(log, proto.SchedulerCommand_VALIDATION, it, nodeList, em)
+		ctx, expiryQuit := context.WithCancel(context.Background())
+		pErr, err := client.StartPlugin(ctx)
 		defer func() {
-			close(expiryQuit)
+			expiryQuit()
 		}()
 
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to start validation plugin in etcd: %v", err), pErr)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
 			return
 		}
 
-		pluginData, destInfo, errs := fta.StartPluginValidate(log, it, em, nodeList)
+		pluginData, destInfo, errs := fta.StartPluginValidate(log, t, nodeList)
 		if len(errs.Errors) > 0 {
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, errs, pluginData, destInfo)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, pluginData, destInfo, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
 			return
 		}
 
-		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, pluginData, destInfo, errs)
+		ctx = context.Context(context.Background())
+		pErr, err = client.CompletePlugin(ctx, proto.SchedulerCommand_VALIDATION, pluginData, destInfo, errs)
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to complete validation plugin in etcd: %v", err), pErr)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_VALIDATION, it, em, errs, pluginData, destInfo)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, pluginData, destInfo, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
@@ -96,37 +102,43 @@ var setupCmd = &cobra.Command{
 	Short: "start the stage in process",
 	Long:  `This subcommand starts a stage in process`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log, it, em, nodeList := fta.FTAInit(debug)
+		log, t, client, nodeList := fta.FTAInit(debug)
 
-		go fta.ListenForKill(it, em, proto.SchedulerCommand_SETUP)
+		go fta.ListenForKill(t, client)
 
-		pErr, err, expiryQuit := fta.StartPluginETCD(log, proto.SchedulerCommand_SETUP, it, nodeList, em)
+		ctx, expiryQuit := context.WithCancel(context.Background())
+		pErr, err := client.StartPlugin(ctx)
 		defer func() {
-			close(expiryQuit)
+			expiryQuit()
 		}()
 
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to start setup plugin in etcd: %v", err), pErr)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_SETUP, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
 			return
+
 		}
 
-		pluginData, errs := fta.StartPluginSetup(log, it, em, nodeList)
+		pluginData, errs := fta.StartPluginSetup(log, t, client, nodeList)
 		if len(errs.Errors) > 0 {
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_SETUP, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
 			return
 		}
 
-		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_SETUP, it, em, pluginData, proto.DestInfo_DEST_NONE, errs)
+		ctx = context.Context(context.Background())
+		pErr, err = client.CompletePlugin(ctx, proto.SchedulerCommand_SETUP, pluginData, proto.DestInfo_DEST_NONE, errs)
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to complete setup plugin in etcd: %v", err), pErr)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_SETUP, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
@@ -141,37 +153,42 @@ var transferCmd = &cobra.Command{
 	Short: "start a pftool transfer",
 	Long:  `This subcommand starts a transfer using pftool`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log, it, em, nodeList := fta.FTAInit(debug)
+		log, t, client, nodeList := fta.FTAInit(debug)
 
-		go fta.ListenForKill(it, em, proto.SchedulerCommand_TRANSFER)
+		go fta.ListenForKill(t, client)
 
-		pErr, err, expiryQuit := fta.StartPluginETCD(log, proto.SchedulerCommand_TRANSFER, it, nodeList, em)
+		ctx, expiryQuit := context.WithCancel(context.Background())
+		pErr, err := client.StartPlugin(ctx)
 		defer func() {
-			close(expiryQuit)
+			expiryQuit()
 		}()
 
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to start transfer plugin in etcd: %v", err), pErr)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
 			return
 		}
 
-		errs := fta.StartPluginTransfer(log, it, em, nodeList)
+		errs := fta.StartPluginTransfer(log, t, client, nodeList)
 		if len(errs.Errors) > 0 {
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
 			return
 		}
 
-		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, nil, proto.DestInfo_DEST_NONE, errs)
+		ctx = context.Context(context.Background())
+		pErr, err = client.CompletePlugin(ctx, proto.SchedulerCommand_TRANSFER, nil, proto.DestInfo_DEST_NONE, errs)
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to complete transfer plugin in etcd: %v", err), pErr)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TRANSFER, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
@@ -186,36 +203,42 @@ var teardownCmd = &cobra.Command{
 	Short: "start the stage out process",
 	Long:  `This subcommand starts a stage in process`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log, it, em, nodeList := fta.FTAInit(debug)
+		log, t, client, nodeList := fta.FTAInit(debug)
 
-		go fta.ListenForKill(it, em, proto.SchedulerCommand_TEARDOWN)
+		go fta.ListenForKill(t, client)
 
-		pErr, err, expiryQuit := fta.StartPluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, nodeList, em)
+		ctx, expiryQuit := context.WithCancel(context.Background())
+		pErr, err := client.StartPlugin(ctx)
 		defer func() {
-			close(expiryQuit)
+			expiryQuit()
 		}()
+
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to start teardown plugin in etcd: %v", err), pErr)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
 			return
 		}
 
-		errs := fta.StartPluginTeardown(log, it, em, nodeList)
+		errs := fta.StartPluginTeardown(log, t, client, nodeList)
 		if len(errs.Errors) > 0 {
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}
 			return
 		}
 
-		pErr, err = fta.CompletePluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, nil, proto.DestInfo_DEST_NONE, errs)
+		ctx = context.Context(context.Background())
+		pErr, err = client.CompletePlugin(ctx, proto.SchedulerCommand_TEARDOWN, nil, proto.DestInfo_DEST_NONE, errs)
 		if err != nil {
 			errs := errToErrs(fmt.Errorf("failed to complete teardown plugin in etcd: %v", err), pErr)
-			_, err := fta.ErrorPluginETCD(log, proto.SchedulerCommand_TEARDOWN, it, em, errs, nil, proto.DestInfo_DEST_NONE)
+			ctx := context.Context(context.Background())
+			_, err := client.FailPlugin(ctx, nil, proto.DestInfo_DEST_NONE, errs)
 			if err != nil {
 				log.Fatalf("failed to set transfer to error state in etcd: %v", err)
 			}

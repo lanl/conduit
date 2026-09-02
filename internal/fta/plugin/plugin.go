@@ -25,13 +25,8 @@ type PluginPathInfo struct {
 	FSC              *FileSystemConfig `json:"filesystemConfig"` // this is the correlating filesystem config for this path
 }
 
-type PluginErrors struct {
-	Errors   []*FTAPathError
-	Warnings []*FTAPathError
-}
-
 // UpdateTransferProgress will update the status details in etcd. WARNING: setup and teardown are run in parallel for each source and destination so this can get overwritten very easily!
-type UpdateTransferProgress func(proto.ETCDStatusDetails) error
+type UpdateTransferProgress func(*proto.ETCDStatusDetails) error
 
 // UpdateAction will update a transfers Action in etcd. This is useful if a plugin needs to change a move to a copy for some reason
 type UpdateAction func(currentAction string, newAction string) error
@@ -50,17 +45,17 @@ type ConduitFTAPlugin interface {
 	// Initialize will provide a logger and transferID to the plugin and the plugin should return its capabilities
 	Initialize(transferID uuid.UUID, log *logger.ConduitLogger) []PluginCapability
 	// ValidateSource will execute any validation the plugin needs to do per source. The plugin should return all pluginPathData which should include leases for that source
-	ValidateSource(pathInfo *PluginPathInfo, action string, options map[string]*anypb.Any) (pluginErrors PluginErrors, pluginPathData *string, omit bool)
+	ValidateSource(pathInfo *PluginPathInfo, action string, options map[string]*anypb.Any) (pluginErrors *proto.FTAPluginErrors, pluginPathData *string, omit bool)
 	// GetResolvedPath returns a fully resolved ftaPath from a userPath. This includes following symlinks. Return any symlinks that point to a different filesystem to have conduit retry with that filesystems plugin
-	GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *FileSystemConfig) (resolvedFTAPath string, foundSymlink string, pathError *FTAPathError)
+	GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *FileSystemConfig) (resolvedFTAPath string, foundSymlink string, pathError *proto.FTAPathError)
 	// ValidateDestination will execute any validation the plugin needs to do for the destination. The plugin should return userPathDestinations, ftaDestinations, destInfo, and pluginPathData
-	ValidateDestination(userSources []string, userDestination string, ftaDestination string, fsConfig *FileSystemConfig) (pluginErrors PluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string)
+	ValidateDestination(userSources []string, userDestination string, ftaDestination string, fsConfig *FileSystemConfig) (pluginErrors *proto.FTAPluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string)
 	// Setup runs before the Transfer. newPathInfo.TransferPath must be set for the transfer plugin to know what path to use
-	Setup(transferID uuid.UUID, pathInfo *PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress UpdateTransferProgress) (pluginErrors PluginErrors, newPathInfo *PluginPathInfo)
+	Setup(transferID uuid.UUID, pathInfo *PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress UpdateTransferProgress) (pluginErrors *proto.FTAPluginErrors, newPathInfo *PluginPathInfo)
 	// Transfer should be when the plugin actually moves data
-	Transfer(transferID uuid.UUID, pluginData *PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress UpdateTransferProgress, updateAction UpdateAction) (pluginErrors PluginErrors)
+	Transfer(transferID uuid.UUID, pluginData *PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress UpdateTransferProgress, updateAction UpdateAction) (pluginErrors *proto.FTAPluginErrors)
 	// Teardown runs after Transfer
-	Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress UpdateTransferProgress) (pluginErrors PluginErrors)
+	Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress UpdateTransferProgress) (pluginErrors *proto.FTAPluginErrors)
 	// returns a default config for the plugin to be used in the conduit fta yaml config
 	GetDefaultConfig() any
 }

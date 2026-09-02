@@ -16,18 +16,18 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) plugin.PluginErrors {
+func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) *proto.FTAPluginErrors {
 	if action == actions.Action_MOVE {
 		// delete source data if this is a move
 		if pathType == proto.LeaseType_SOURCE {
 			trashPath, pErr, err := getTrashPathFromConfig(pathInfo.FSC, pathInfo.ResolvedUserPath, transferID)
 			if err != nil {
-				return plugin.PluginErrors{
-					Errors: []*plugin.FTAPathError{
+				return &proto.FTAPluginErrors{
+					Errors: []*proto.FTAPathError{
 						{
 							LeasePath:  pathInfo.ResolvedFTAPath,
 							PErr:       pErr,
-							ErrMessage: fmt.Errorf("failed to get trash path: %v", err),
+							ErrMessage: fmt.Sprintf("failed to get trash path: %v", err),
 						},
 					},
 				}
@@ -42,19 +42,19 @@ func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.Tran
 
 				p.log.Warnf("moving %v to %v", pathInfo.ResolvedFTAPath, trashPath)
 
-				updateTransferProgress(proto.ETCDStatusDetails{
+				updateTransferProgress(&proto.ETCDStatusDetails{
 					PluginStatus: fmt.Sprintf("moving %v to %v", pathInfo.ResolvedFTAPath, trashPath),
 				})
 
-				errors := []*plugin.FTAPathError{}
+				errors := []*proto.FTAPathError{}
 
 				// move the source files in the staging area to the trash
 				err = os.Rename(pathInfo.ResolvedFTAPath, trashPath)
 				if err != nil {
-					errors = append(errors, &plugin.FTAPathError{
+					errors = append(errors, &proto.FTAPathError{
 						LeasePath:  pathInfo.ResolvedFTAPath,
 						PErr:       proto.Error_ERROR_RENAME_FAILED,
-						ErrMessage: fmt.Errorf("failed to rename source to trash %v -> %v: %v", pathInfo.ResolvedFTAPath, trashPath, err),
+						ErrMessage: fmt.Sprintf("failed to rename source to trash %v -> %v: %v", pathInfo.ResolvedFTAPath, trashPath, err),
 					})
 				}
 
@@ -63,16 +63,16 @@ func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.Tran
 					var aTime time.Time
 					err = os.Chtimes(filepath.Dir(trashPath), aTime, mTime)
 					if err != nil {
-						errors = append(errors, &plugin.FTAPathError{
+						errors = append(errors, &proto.FTAPathError{
 							LeasePath:  pathInfo.ResolvedFTAPath,
 							PErr:       proto.Error_ERROR_CHTIME_FAILED,
-							ErrMessage: fmt.Errorf("failed to change modified time of trash dir %v: %v", filepath.Dir(trashPath), err),
+							ErrMessage: fmt.Sprintf("failed to change modified time of trash dir %v: %v", filepath.Dir(trashPath), err),
 						})
 					}
 				}
 
 				if len(errors) > 0 {
-					return plugin.PluginErrors{
+					return &proto.FTAPluginErrors{
 						Errors: errors,
 					}
 				}
@@ -81,18 +81,18 @@ func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.Tran
 				// remove the source files in the staging area
 				p.log.Warnf("removing: %v", pathInfo.ResolvedFTAPath)
 
-				updateTransferProgress(proto.ETCDStatusDetails{
+				updateTransferProgress(&proto.ETCDStatusDetails{
 					PluginStatus: fmt.Sprintf("removing %v", pathInfo.ResolvedFTAPath),
 				})
 
 				err := os.RemoveAll(pathInfo.ResolvedFTAPath)
 				if err != nil {
-					return plugin.PluginErrors{
-						Errors: []*plugin.FTAPathError{
+					return &proto.FTAPluginErrors{
+						Errors: []*proto.FTAPathError{
 							{
 								LeasePath:  pathInfo.ResolvedFTAPath,
 								PErr:       proto.Error_ERROR_REMOVE_FAILED,
-								ErrMessage: fmt.Errorf("failed to remove source files %v: %v", pathInfo.ResolvedFTAPath, err),
+								ErrMessage: fmt.Sprintf("failed to remove source files %v: %v", pathInfo.ResolvedFTAPath, err),
 							},
 						},
 					}
@@ -101,11 +101,11 @@ func (p *PosixPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.Tran
 		}
 	}
 
-	updateTransferProgress(proto.ETCDStatusDetails{
+	updateTransferProgress(&proto.ETCDStatusDetails{
 		PluginStatus: fmt.Sprintf("teardown %v complete", pathInfo.OriginalUserPath),
 	})
 
-	return plugin.PluginErrors{}
+	return &proto.FTAPluginErrors{}
 }
 
 func getTrashPathFromConfig(fsc *plugin.FileSystemConfig, cleanUserPath string, transferID uuid.UUID) (string, proto.Error, error) {

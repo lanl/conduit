@@ -502,29 +502,28 @@ func (w *Watchdog) expireTransfer(it proto.IncompleteTransfer, expiry time.Time)
 	errorKey := it.ETCDErrorKey()
 	jobKey := it.ETCDJobsKey()
 
-	txn, _ := w.em.Txn()
-	txn.If(
+	compares := []clientv3.Cmp{
 		clientv3.Compare(clientv3.Value(stateKey), "!=", proto.TransferState_TRANSFER_FINALIZED.String()),
 		clientv3.Compare(clientv3.Value(stateKey), "!=", proto.TransferState_TRANSFER_ERROR.String()),
 		clientv3.Compare(clientv3.Value(errorKey), "=", proto.Error_ERROR_NONE.String()),
 		clientv3.Compare(clientv3.Value(expiryKey), "=", expiry.Format(time.RFC3339)),
 		clientv3.Compare(clientv3.CreateRevision(jobKey), "=", 0),
-	)
+	}
 
-	txn.Then(
+	actions := []clientv3.Op{
 		clientv3.OpPut(errorKey, proto.Error_ERROR_LEASE_EXPIRED.String()),
-	)
+	}
 
 	// If the transaction fails, retrieve the values that caused it
 	// to fail so we can determine whether the transfer should still run.
-	txn.Else(
+	elses := []clientv3.Op{
 		clientv3.OpGet(stateKey),
 		clientv3.OpGet(errorKey),
 		clientv3.OpGet(expiryKey),
 		clientv3.OpGet(jobKey),
-	)
+	}
 
-	resp, err := txn.Commit()
+	resp, err := w.em.RetryTxn(&compares, &actions, &elses, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return false, time.Unix(0, 0), false, fmt.Errorf("error committing transaction to etcd for transfer[%s]: %v", it.GetTransferID(), err)
 	}

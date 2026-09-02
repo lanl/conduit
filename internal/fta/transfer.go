@@ -3,47 +3,35 @@
 package fta
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/internal/etcd"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/lanl/conduit/internal/logger"
 )
 
-func StartPluginTransfer(log *logger.ConduitLogger, it proto.IncompleteTransfer, em *etcd.ETCDManager, nodeList string) plugin.PluginErrors {
-	transferID, err := uuid.Parse(it.GetTransferID())
+func StartPluginTransfer(log *logger.ConduitLogger, t *proto.TransferDetails, client *FTAClient, nodeList string) *proto.FTAPluginErrors {
+	transferID, err := uuid.Parse(t.GetTransferID())
 	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_CONDUIT_INTERNAL,
-					ErrMessage: fmt.Errorf("failed to parse transfer id[%v]: %v", it.GetTransferID(), err),
+					ErrMessage: fmt.Sprintf("failed to parse transfer id[%v]: %v", t.GetTransferID(), err),
 				},
 			},
 		}
 	}
 
-	// get action and options for transfer
-	action, options, err := em.GetActionAndOptions(it)
+	pluginData, err := plugin.DecodePluginData(bytes.NewReader(t.GetPluginData()))
 	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{{
-				PErr:       proto.Error_ERROR_ETCD_CONNECTION,
-				ErrMessage: fmt.Errorf("failed to get action and options from etcd: %v", err),
-			}},
-		}
-	}
-
-	// get sources and destination for transfer
-	pluginData, err := em.GetPluginData(it)
-	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_ETCD_CONNECTION,
-					ErrMessage: fmt.Errorf("failed to get plugin data from etcd: %v", err),
+					ErrMessage: fmt.Sprintf("failed to decode plugin data in transfer details: %v", err),
 				},
 			},
 		}
@@ -52,32 +40,20 @@ func StartPluginTransfer(log *logger.ConduitLogger, it proto.IncompleteTransfer,
 	// get setup plugins for paths
 	transferPlugin, pErr, err := getTransferPlugin(transferID, log, pluginData)
 	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       pErr,
-					ErrMessage: err,
+					ErrMessage: err.Error(),
 				},
 			},
 		}
 	}
 
-	destInfo, err := em.GetDestInfo(it)
-	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
-				{
-					PErr:       proto.Error_ERROR_CONDUIT_INTERNAL,
-					ErrMessage: fmt.Errorf("failed to get destination information from etcd: %v", err),
-				},
-			},
-		}
-	}
-
-	updater := NewUpdater(log, em, it)
+	updater := NewUpdater(log, client, t)
 
 	// run the transfer
-	errs := transferPlugin.Transfer(transferID, pluginData, destInfo, action, options, updater.updateTransferProgress, updater.updateAction)
+	errs := transferPlugin.Transfer(transferID, pluginData, t.GetDestInfo(), t.GetAction(), t.GetOptions(), updater.updateTransferProgress, updater.updateAction)
 
 	return errs
 }

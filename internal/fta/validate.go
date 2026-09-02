@@ -8,51 +8,28 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/internal/etcd"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/lanl/conduit/internal/logger"
 )
 
-func StartPluginValidate(log *logger.ConduitLogger, it proto.IncompleteTransfer, em *etcd.ETCDManager, nodeList string) (pluginData *plugin.PluginData, destInfo proto.DestInfo, _ plugin.PluginErrors) {
+func StartPluginValidate(log *logger.ConduitLogger, t *proto.TransferDetails, nodeList string) (pluginData *plugin.PluginData, destInfo proto.DestInfo, _ *proto.FTAPluginErrors) {
 	pluginData = &plugin.PluginData{
 		SourcePluginInfo:       make(map[string]*plugin.PluginPathInfo),
 		DestinationsPluginInfo: make(map[string]*plugin.PluginPathInfo),
 		PluginPathData:         make(map[string]*string),
 	}
 
-	transferID, err := uuid.Parse(it.GetTransferID())
+	transferID, err := uuid.Parse(t.GetTransferID())
 	if err != nil {
-		return pluginData, proto.DestInfo_DEST_NONE, plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{{
+		return pluginData, proto.DestInfo_DEST_NONE, &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{{
 				PErr:       proto.Error_ERROR_VALIDATION,
-				ErrMessage: fmt.Errorf("failed to parse transfer id[%v]: %v", it.GetTransferID(), err),
+				ErrMessage: fmt.Sprintf("failed to parse transfer id[%v]: %v", t.GetTransferID(), err),
 			}},
 		}
 	}
 
-	// get action and options for transfer
-	action, options, err := em.GetActionAndOptions(it)
-	if err != nil {
-		return pluginData, proto.DestInfo_DEST_NONE, plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{{
-				PErr:       proto.Error_ERROR_ETCD_CONNECTION,
-				ErrMessage: fmt.Errorf("failed to get action and options from etcd: %v", err),
-			}},
-		}
-	}
-
-	// get sources and destination for transfer
-	sources, destination, err := em.GetSourcesAndDestination(it)
-	if err != nil {
-		return pluginData, proto.DestInfo_DEST_NONE, plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{{
-				PErr:       proto.Error_ERROR_ETCD_CONNECTION,
-				ErrMessage: fmt.Errorf("failed to get source and destination from etcd: %v", err),
-			}},
-		}
-	}
-
-	srcPlugins, dstPlugin, pluginErrs := getSrcAndDstValidationPlugins(transferID, log, sources, destination)
+	srcPlugins, dstPlugin, pluginErrs := getSrcAndDstValidationPlugins(transferID, log, t.GetSource(), t.GetDestination())
 	if len(pluginErrs.Errors) > 0 {
 		return pluginData, proto.DestInfo_DEST_NONE, pluginErrs
 	}
@@ -63,13 +40,13 @@ func StartPluginValidate(log *logger.ConduitLogger, it proto.IncompleteTransfer,
 	pluginData.DestinationPluginInfo = dstPlugin
 
 	// add sources to pluginData
-	for _, s := range sources {
+	for _, s := range t.GetSource() {
 		pluginData.SourcePluginInfo[s] = srcPlugins[s]
 	}
 
 	var wg sync.WaitGroup
 
-	var pluginErrors plugin.PluginErrors
+	pluginErrors := &proto.FTAPluginErrors{}
 	var resolvedFTADestinations, userDestinations []string
 	var ppd map[string]*string
 	var pdLock sync.Mutex
@@ -81,7 +58,7 @@ func StartPluginValidate(log *logger.ConduitLogger, it proto.IncompleteTransfer,
 		wg.Add(1)
 		go func(goSourcePlugin *plugin.PluginPathInfo) {
 			defer wg.Done()
-			srcPluginErrors, ppd, omit := sp.Plugin.ValidateSource(goSourcePlugin, action, options)
+			srcPluginErrors, ppd, omit := sp.Plugin.ValidateSource(goSourcePlugin, t.GetAction(), t.GetOptions())
 			pdLock.Lock()
 			if omit {
 				omitLock.Lock()
@@ -112,29 +89,29 @@ func StartPluginValidate(log *logger.ConduitLogger, it proto.IncompleteTransfer,
 		warnings := ""
 		for _, w := range pluginErrors.Warnings {
 			if warnings == "" {
-				warnings = w.ErrMessage.Error()
+				warnings = w.ErrMessage
 			} else {
-				warnings = fmt.Sprintf("%v; %v", warnings, w.ErrMessage.Error())
+				warnings = fmt.Sprintf("%v; %v", warnings, w.ErrMessage)
 			}
 		}
 
-		pluginErrors.Errors = append(pluginErrors.Errors, &plugin.FTAPathError{
+		pluginErrors.Errors = append(pluginErrors.Errors, &proto.FTAPathError{
 			PErr:       proto.Error_ERROR_INVALID_INPUT,
-			ErrMessage: fmt.Errorf("No valid sources provided; %v", warnings),
+			ErrMessage: fmt.Sprintf("No valid sources provided; %v", warnings),
 		})
 
 		return pluginData, proto.DestInfo_DEST_NONE, pluginErrors
 	}
 
-	var destPluginErrors plugin.PluginErrors
-	log.Debugf("sources: %v", sources)
-	log.Debugf("destination: %v", destination)
+	var destPluginErrors *proto.FTAPluginErrors
+	log.Debugf("sources: %v", t.GetSource())
+	log.Debugf("destination: %v", t.GetDestination())
 	log.Debugf("dstPlugin.ResolvedFTAPath: %v", dstPlugin.ResolvedFTAPath)
 	log.Debugf("dstPlugin.FSC: %v", dstPlugin.FSC)
-	destPluginErrors, userDestinations, resolvedFTADestinations, destInfo, ppd = dstPlugin.Plugin.ValidateDestination(filteredSources, destination, dstPlugin.ResolvedFTAPath, dstPlugin.FSC)
+	destPluginErrors, userDestinations, resolvedFTADestinations, destInfo, ppd = dstPlugin.Plugin.ValidateDestination(filteredSources, t.GetDestination(), dstPlugin.ResolvedFTAPath, dstPlugin.FSC)
 	for i, d := range userDestinations {
 		pluginData.DestinationsPluginInfo[d] = &plugin.PluginPathInfo{
-			OriginalUserPath: destination,
+			OriginalUserPath: t.GetDestination(),
 			ResolvedUserPath: d,
 			ResolvedFTAPath:  resolvedFTADestinations[i],
 			Plugin:           dstPlugin.Plugin,

@@ -463,7 +463,7 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 		actions := []clientv3.Op{
 			clientv3.OpPut(it.ETCDLeaseListKey(), string(jsonPathList)),
 		}
-		txnResp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+		txnResp, err := tw.em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil {
 			tErr := fmt.Errorf("failed to put lease list into etcd for transfer[%s]: %v", it.GetTransferID(), err)
 			tw.log.Error(tErr)
@@ -564,7 +564,7 @@ func (tw *TransferWorker) acquireLeases(it proto.IncompleteTransfer, ctx context
 	}
 
 	ct := []uuid.UUID{}
-	for ctid, _ := range conflictingTransfers {
+	for ctid := range conflictingTransfers {
 		ct = append(ct, ctid)
 	}
 
@@ -662,7 +662,7 @@ func (tw *TransferWorker) verifyFinalized(it proto.IncompleteTransfer, eventID u
 	actions = append(actions, clientv3.OpPut(it.ETCDArchiveStateKey(), proto.ArchiveState_ARCHIVE_READY.String()))
 	actions = append(actions, clientv3.OpPut(it.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)))
 
-	resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := tw.em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		tErr := fmt.Errorf("failed to set transfer[%s] to %v: %v", it.GetTransferID(), proto.TransferState_TRANSFER_FINALIZED.String(), err)
 		// tErr := fmt.Errorf("error while to set transfer[%s] to %s: %v", it.GetTransferID(), proto.TransferState_TRANSFER_LEASE_ACQUIRED.String(), err)
@@ -751,7 +751,7 @@ func (tw *TransferWorker) verifyValidationComplete(it proto.IncompleteTransfer, 
 	actions = append(actions, clientv3.OpPut(it.ETCDArchiveStateKey(), proto.ArchiveState_ARCHIVE_READY.String()))
 	actions = append(actions, clientv3.OpPut(it.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)))
 
-	resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := tw.em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		tErr := fmt.Errorf("failed to set transfer[%s] to inactive: %v", it.GetTransferID(), err)
 		// tErr := fmt.Errorf("error while to set transfer[%s] to %s: %v", it.GetTransferID(), proto.TransferState_TRANSFER_LEASE_ACQUIRED.String(), err)
@@ -815,7 +815,7 @@ func (tw *TransferWorker) progressPausedTransfer(it proto.IncompleteTransfer, ol
 	comparisons = append(comparisons, clientv3.Compare(clientv3.Value(it.ETCDStateKey()), "=", oldPausedState.String()))
 	actions = append(actions, clientv3.OpPut(it.ETCDStateKey(), oldPausedState.String()))
 
-	resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := tw.em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil || !resp.Succeeded {
 		tw.log.Errorf("failed to set transfer[%s] leases to progress paused state: %v", it.GetTransferID(), err)
 		if err == nil {

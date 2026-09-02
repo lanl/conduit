@@ -39,7 +39,7 @@ var rsyncFinalFiles = regexp.MustCompile(
 	`^Number of regular files transferred:\s+([0-9,]+)`,
 )
 
-func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
+func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) *proto.FTAPluginErrors {
 	p.log.Debugf("scheduler nodelist: %v", os.Getenv("SLURM_JOB_NODELIST"))
 	p.log.Debugf("environ: %+v", os.Environ())
 
@@ -87,11 +87,11 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 	rsyncConfig := DefaultRsyncPluginConfig()
 	err := plugin.GetPluginConfigsFromViper(RsyncPluginKey, &rsyncConfig)
 	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
-					ErrMessage: fmt.Errorf("failed to get rsync config: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get rsync config: %v", err),
 				},
 			},
 		}
@@ -102,11 +102,11 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 
 	stdoutp, err := cmd.StdoutPipe()
 	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_FTA_PLUGIN_FAILED,
-					ErrMessage: fmt.Errorf("failed to get stdout pipe from command: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get stdout pipe from command: %v", err),
 				},
 			},
 		}
@@ -114,17 +114,17 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 
 	stderrp, err := cmd.StderrPipe()
 	if err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_FTA_PLUGIN_FAILED,
-					ErrMessage: fmt.Errorf("failed to get stderr pipe from command: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get stderr pipe from command: %v", err),
 				},
 			},
 		}
 	}
 
-	done := make(chan *plugin.FTAPathError)
+	done := make(chan *proto.FTAPathError)
 
 	stdoutScanner := bufio.NewScanner(stdoutp)
 	stdoutScanner.Split(ScanLinesWithCR)
@@ -139,6 +139,9 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	var stdoutScanErr error
+	var stderrScanErr error
+
 	// this go routine will watch the stderr pipe and add it to the stderrText variable
 	go func() {
 		defer wg.Done()
@@ -147,6 +150,10 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 			t := stderrScanner.Text()
 			p.log.Errorf("rsync error text: %v", t)
 			stderrText = fmt.Sprintf("%v\n%v", stderrText, strings.ToValidUTF8(t, "[invalid-utf8]"))
+		}
+
+		if err := stderrScanner.Err(); err != nil {
+			stderrScanErr = fmt.Errorf("failed reading rsync stderr: %w", err)
 		}
 	}()
 
@@ -172,7 +179,7 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 				data := strings.TrimSpace(dataBytes + dataSuffix)
 				bandwidth := strings.TrimSpace(m[4])
 
-				uErr := updateTransferProgress(proto.ETCDStatusDetails{
+				uErr := updateTransferProgress(&proto.ETCDStatusDetails{
 					Data:      data,
 					Bandwidth: bandwidth,
 				})
@@ -184,7 +191,7 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 			if m := rsyncTotalTransferredRe.FindStringSubmatch(t); m != nil {
 				dataBytes := strings.ReplaceAll(m[1], ",", "")
 
-				uErr := updateTransferProgress(proto.ETCDStatusDetails{
+				uErr := updateTransferProgress(&proto.ETCDStatusDetails{
 					Data: dataBytes + "B",
 				})
 				if uErr != nil {
@@ -195,7 +202,7 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 			if m := rsyncFinalBandwidth.FindStringSubmatch(t); m != nil {
 				bandwidth := strings.ReplaceAll(m[3], ",", "")
 
-				uErr := updateTransferProgress(proto.ETCDStatusDetails{
+				uErr := updateTransferProgress(&proto.ETCDStatusDetails{
 					Bandwidth: bandwidth + "B",
 				})
 				if uErr != nil {
@@ -209,26 +216,29 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 				if iErr != nil {
 					p.log.Errorf("failed to convert string[%v] to int: %v", filesInt, iErr)
 				} else {
-					uErr := updateTransferProgress(proto.ETCDStatusDetails{
+					uErr := updateTransferProgress(&proto.ETCDStatusDetails{
 						Files: uint32(filesInt),
 					})
 					if uErr != nil {
 						p.log.Errorf("failed to update final rsync transfer progress: %v", uErr)
 					}
 				}
-
 			}
-
 		}
+
+		if err := stdoutScanner.Err(); err != nil {
+			stdoutScanErr = fmt.Errorf("failed reading rsync stdout: %w", err)
+		}
+
 	}()
 
 	// start the rsync command
 	if err := cmd.Start(); err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_FTA_PLUGIN_FAILED,
-					ErrMessage: fmt.Errorf("failed to start rsync command: %v", err),
+					ErrMessage: fmt.Sprintf("failed to start rsync command: %v", err),
 				},
 			},
 		}
@@ -240,36 +250,56 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 		wg.Wait()
 		err := cmd.Wait()
 		if err != nil {
-			done <- &plugin.FTAPathError{PErr: proto.Error_ERROR_FTA_PLUGIN_FAILED, ErrMessage: fmt.Errorf("rsync returned non zero exit code: %v", err)}
+			done <- &proto.FTAPathError{
+				PErr:       proto.Error_ERROR_FTA_PLUGIN_FAILED,
+				ErrMessage: fmt.Sprintf("rsync returned non zero exit code: %v", err),
+			}
 			return
 		}
-		done <- &plugin.FTAPathError{PErr: proto.Error_ERROR_NONE, ErrMessage: nil}
+
+		if stderrScanErr != nil {
+			done <- &proto.FTAPathError{
+				PErr:       proto.Error_ERROR_FTA_PLUGIN_FAILED,
+				ErrMessage: stderrScanErr.Error(),
+			}
+			return
+		}
+
+		if stdoutScanErr != nil {
+			done <- &proto.FTAPathError{
+				PErr:       proto.Error_ERROR_FTA_PLUGIN_FAILED,
+				ErrMessage: stdoutScanErr.Error(),
+			}
+			return
+		}
+
+		done <- &proto.FTAPathError{PErr: proto.Error_ERROR_NONE, ErrMessage: ""}
 	}()
 
 	// this will wait for the cmd to finish from the go routine
 	errorOccurred := <-done
 
-	warnings := []*plugin.FTAPathError{}
+	warnings := []*proto.FTAPathError{}
 
-	pluginErrors := plugin.PluginErrors{
+	pluginErrors := &proto.FTAPluginErrors{
 		Warnings: warnings,
 	}
 
-	if errorOccurred.ErrMessage != nil {
+	if errorOccurred.ErrMessage != "" {
 		// an error occurred. Format the cmd line in case there are a lot of sources
 		cmdOuput := cmd.String()
 		if len(cmd.String()) > 5000 {
 			cmdOuput = cmd.String()[:2500] + " ...... " + cmd.String()[len(cmd.String())-2500:]
 		}
-		errMessage := fmt.Errorf("an error occurred during command[%v]: %+v\n\nrsync stderr output:\n%v", cmdOuput, errorOccurred.ErrMessage, stderrText)
+		errMessage := fmt.Sprintf("an error occurred during command[%v]: %+v\n\nrsync stderr output:\n%v", cmdOuput, errorOccurred.ErrMessage, stderrText)
 		if p.log.GetLevel() == logrus.DebugLevel {
-			errMessage = fmt.Errorf("an error occurred during command[%v]: %+v\n\ncmd environment: [%+v]\n\nrsync stderr output:\n%v", cmdOuput, errorOccurred.ErrMessage, cmd.Environ(), stderrText)
+			errMessage = fmt.Sprintf("an error occurred during command[%v]: %+v\n\ncmd environment: [%+v]\n\nrsync stderr output:\n%v", cmdOuput, errorOccurred.ErrMessage, cmd.Environ(), stderrText)
 		}
 		if nonfatalErrors != "" {
-			errMessage = fmt.Errorf("%s\n\nrsync nonfatal errors:\n%s", errMessage, nonfatalErrors)
+			errMessage = fmt.Sprintf("%s\n\nrsync nonfatal errors:\n%s", errMessage, nonfatalErrors)
 		}
 
-		pluginErrors.Errors = append(pluginErrors.Errors, &plugin.FTAPathError{
+		pluginErrors.Errors = append(pluginErrors.Errors, &proto.FTAPathError{
 			PErr:       errorOccurred.PErr,
 			ErrMessage: errMessage,
 		})

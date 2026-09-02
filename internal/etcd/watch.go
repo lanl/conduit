@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lanl/conduit/api"
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
 	"github.com/spf13/viper"
@@ -252,7 +253,7 @@ func (em *ETCDManager) WaitTransfersActive(ids []uuid.UUID, ctx context.Context)
 // }
 
 // UpdateExpiryOnce will update a transfers expiry one time. The new expiry will be the configured ExpiryAdvance duration from the current time
-func (em *ETCDManager) UpdateExpiryOnce(it proto.IncompleteTransfer, status string) (succeeded bool, err error, newExpiry *timestamppb.Timestamp) {
+func (em *ETCDManager) UpdateExpiryOnce(it proto.IncompleteTransfer, status string) (succeeded bool, err error, newExpiry *timestamppb.Timestamp, transferErrorState proto.Error) {
 	newExpiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
 
 	actions := []clientv3.Op{
@@ -263,6 +264,10 @@ func (em *ETCDManager) UpdateExpiryOnce(it proto.IncompleteTransfer, status stri
 		actions = append(actions, clientv3.OpPut(it.ETCDStatusKey(), status))
 	}
 
+	elses := []clientv3.Op{
+		clientv3.OpGet(it.ETCDErrorKey()),
+	}
+
 	// check if the transfer has an error before updating the expiry key
 	resp, err := em.RetryTxn(
 		&[]clientv3.Cmp{
@@ -270,14 +275,25 @@ func (em *ETCDManager) UpdateExpiryOnce(it proto.IncompleteTransfer, status stri
 			clientv3.Compare(clientv3.Value(it.ETCDActiveKey()), "=", strconv.FormatBool(true)),
 		},
 		&actions,
+		&elses,
 		defaults.MaxRetries,
 		defaults.RetryDelay,
 	)
 	if err != nil {
-		return false, fmt.Errorf("failed to update expiry in etcd for transfer[%s]: %s ", it.GetTransferID(), err), newExpiry
+		return false, fmt.Errorf("failed to update expiry in etcd for transfer[%s]: %s ", it.GetTransferID(), err), newExpiry, api.Error_ERROR_NONE
 	}
 
-	return resp.Succeeded, nil, newExpiry
+	var spErr string
+	if resp != nil && len(resp.Responses) > 0 && resp.Responses[0].GetResponseRange() != nil && len(resp.Responses[0].GetResponseRange().Kvs) != 0 {
+		spErr = string(resp.Responses[0].GetResponseRange().Kvs[0].Value)
+	}
+
+	var pErr api.Error
+	if vpErr, ok := api.Error_value[spErr]; ok {
+		pErr = api.Error(vpErr)
+	}
+
+	return resp.Succeeded, nil, newExpiry, pErr
 }
 
 // watchErrant is the go routine that watches changes to the errors area in etcd. It sends these events to any subscribers

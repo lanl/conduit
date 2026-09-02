@@ -3,9 +3,13 @@
 package plugin
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 
+	"github.com/andybalholm/brotli"
 	proto "github.com/lanl/conduit/api"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
@@ -41,13 +45,6 @@ type ViperPluginStagesConfig struct {
 	TransferDst []string `mapstructure:"transfer-dst" yaml:"transfer-dst"`
 	TeardownSrc string   `mapstructure:"teardown-src" yaml:"teardown-src"`
 	TeardownDst string   `mapstructure:"teardown-dst" yaml:"teardown-dst"`
-}
-
-// FTAPathError includes the lease, the protobuf error, and a detailed error message
-type FTAPathError struct {
-	LeasePath  string
-	PErr       proto.Error
-	ErrMessage error
 }
 
 // getFSCsFromViper will get the filesystem configuration from viper
@@ -118,4 +115,52 @@ func GetPluginConfigsFromViper(pluginKey string, config any) error {
 	}
 
 	return nil
+}
+
+// DecodePluginData will decode plugindata from bytes
+func DecodePluginData(data io.Reader) (*PluginData, error) {
+	r := brotli.NewReader(data)
+	var decodedOutput bytes.Buffer
+	_, err := io.Copy(&decodedOutput, r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode brotli pluginData: %v", err)
+	}
+
+	pluginData := &PluginData{}
+	err = json.Unmarshal(decodedOutput.Bytes(), pluginData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal pluginData: %v", err)
+	}
+
+	return pluginData, nil
+}
+
+// EncodePluginData will encode plugindata to bytes
+func EncodePluginData(pluginData *PluginData) (*bytes.Buffer, error) {
+	if pluginData == nil {
+		return nil, fmt.Errorf("provided pluginData was nil")
+	}
+
+	// json marshal plugin data, then compress with brotli
+	jsonPluginData, err := json.Marshal(pluginData)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal pluginData[%v]: %v", pluginData, err)
+	}
+	out := bytes.Buffer{}
+	writer := brotli.NewWriterOptions(&out, brotli.WriterOptions{Quality: 1})
+	in := bytes.NewReader(jsonPluginData)
+	n, err := io.Copy(writer, in)
+	if err != nil {
+		return nil, fmt.Errorf("failed to copy jsonPluginData to writer: %v", err)
+	}
+
+	if int(n) != len(jsonPluginData) {
+		return nil, fmt.Errorf("copy did not copy the correct number of bytes: %v vs %v", int(n), len(jsonPluginData))
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("failed to close brotli writer: %v", err)
+	}
+
+	return &out, nil
 }

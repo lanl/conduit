@@ -1,6 +1,6 @@
 // Copyright 2026. Triad National Security, LLC. All rights reserved.
 
-package internal
+package runner
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
+
+	proto "github.com/lanl/conduit/api"
 )
 
 func clientCertInfo(ctx context.Context) (cert *x509.Certificate, ip net.IP, dns []string, uris []string, cn string, err error) {
@@ -45,4 +47,20 @@ func clientCertInfo(ctx context.Context) (cert *x509.Certificate, ip net.IP, dns
 	}
 	cn = cert.Subject.CommonName // deprecated for identity; prefer SANs/URIs
 	return cert, ip, dns, uris, cn, nil
+}
+
+// getCommandStates will return the correlating "submitted", "running", and "complete" states for a given command
+func getCommandStates(command proto.SchedulerCommand) (submitted proto.StringableState, running proto.StringableState, complete proto.StringableState, _ error) {
+	switch command {
+	case proto.SchedulerCommand_VALIDATION:
+		return proto.TransferState_TRANSFER_VALIDATION_SUBMITTED, proto.TransferState_TRANSFER_VALIDATING, proto.TransferState_TRANSFER_VALIDATION_COMPLETE, nil
+	case proto.SchedulerCommand_SETUP:
+		return proto.TransferState_TRANSFER_SETUP_SUBMITTED, proto.TransferState_TRANSFER_SETUP, proto.TransferState_TRANSFER_SETUP_COMPLETE, nil
+	case proto.SchedulerCommand_TRANSFER:
+		return proto.TransferState_TRANSFER_DATA_SUBMITTED, proto.TransferState_TRANSFER_DATA_TRANSFERRING, proto.TransferState_TRANSFER_DATA_COMPLETE, nil
+	case proto.SchedulerCommand_TEARDOWN:
+		return proto.TransferState_TRANSFER_TEARDOWN_SUBMITTED, proto.TransferState_TRANSFER_TEARDOWN, proto.TransferState_TRANSFER_TEARDOWN_COMPLETE, nil
+	}
+
+	return proto.TransferState_TRANSFER_NONE, proto.TransferState_TRANSFER_NONE, proto.ArchiveState_ARCHIVE_NONE, fmt.Errorf("failed to get submitted state for command: %v", command)
 }

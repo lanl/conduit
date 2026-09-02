@@ -20,7 +20,7 @@ import (
 func (em *ETCDManager) UpdateExpiryConstantly(it proto.IncompleteTransfer, ctx context.Context, status string) {
 	em.log.Debugf("constantly updating expiry for transfer[%v] every %v seconds", it.GetTransferID(), 10)
 
-	_, err, _ := em.UpdateExpiryOnce(it, status)
+	_, err, _, _ := em.UpdateExpiryOnce(it, status)
 	if err != nil {
 		em.log.Error(err)
 	}
@@ -93,7 +93,7 @@ func (em *ETCDManager) updateExpiriesOnce(its map[string]map[uuid.UUID]proto.Inc
 	}
 
 	// send the chunks to etcd
-	for ci, _ := range opsChunks {
+	for ci := range opsChunks {
 		em.log.Infof("sending chunk %v of %v", ci, len(opsChunks))
 
 		txn, cancel := em.Txn()

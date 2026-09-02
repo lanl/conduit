@@ -273,7 +273,7 @@ func ConvertETCDTransfer(t *proto.TransferDetails) ([]clientv3.Op, error) {
 	}
 
 	// create op for transfer status details
-	esd, err := t.ETCDStatusDetails()
+	esd, err := t.ETCDStatusDetailsBytes()
 	if err != nil {
 		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer status details for etcd: %v", t.GetTransferID(), err)
 	}

@@ -3,96 +3,54 @@
 package fta
 
 import (
+	"context"
 	"time"
 
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/etcd"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
-	clientv3 "go.etcd.io/etcd/client/v3"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func updateTransferExpiry(t proto.IncompleteTransfer, em *etcd.ETCDManager) chan bool {
+func updateTransferExpiry(ctx context.Context, client *FTAClient) {
 	expiryTicker := time.NewTicker(viper.GetDuration(defaults.ConfigExpiryIntervalKey))
-	abortTicker := time.NewTicker(viper.GetDuration(defaults.ConfigExpiryIntervalKey))
-	quit := make(chan bool)
-	logrus.Debugf("starting UpdateExpiry for transfer[%s]", t.GetTransferID())
-	go func() {
-		// update expiry immediatly, then do it every internal
-		succeeded, err, newExpiry := updateTransferExpiryOnce(t, em)
-		if err != nil {
-			logrus.Errorf("error committing updated expiry to etcd for transfer[%s]: %v", t.GetTransferID(), err)
-		} else if !succeeded {
-			logrus.Fatalf("failed to update expiry in etcd for transfer[%s]: error for transfer was not none", t.GetTransferID())
-		} else {
-			logrus.Debugf("successfully updated expiry for transfer[%s]: %s", t.GetTransferID(), newExpiry)
-		}
+	logrus.Debugf("starting UpdateExpiry")
 
-		for {
-			select {
-			case <-expiryTicker.C:
-				logrus.Debugf("updating expiry for transfer[%s]", t.GetTransferID())
-				succeeded, err, newExpiry := updateTransferExpiryOnce(t, em)
-				if err != nil {
-					logrus.Errorf("error committing updated expiry to etcd for transfer[%s]: %v", t.GetTransferID(), err)
-				} else if !succeeded {
-					logrus.Fatalf("failed to update expiry in etcd for transfer[%s]: error for transfer was not none", t.GetTransferID())
-				} else {
-					logrus.Debugf("successfully updated expiry for transfer[%s]: %s", t.GetTransferID(), newExpiry)
-				}
+	hCtx := context.Context(context.Background())
+	resp, err := client.api.Heartbeat(hCtx, &emptypb.Empty{})
+	handleExpiryResponse(resp, err)
 
-			case <-quit:
-				expiryTicker.Stop()
-				logrus.Warnf("UpdateExpiry was stopped for transfer[%s]", t.GetTransferID())
-				return
-			}
-		}
-	}()
-	go func() {
-		for {
-			select {
-			// check if the user aborted the transfer
-			case <-abortTicker.C:
-				logrus.Debugf("checking for transfer[%s] abort", t.GetTransferID())
-				resp, err := em.Get(t.ETCDErrorKey())
-				if err != nil {
-					logrus.Errorf("error getting lease error state for transfer[%s]: %v", t.GetTransferID(), err)
-				} else if len(resp.Kvs) < 1 {
-					logrus.Errorf("etcd didn't return any error state for this entry: %s", t.ETCDErrorKey())
-				} else {
-					if val, ok := proto.Error_value[string(resp.Kvs[0].Value)]; ok {
-						es := proto.Error(val)
-						if es == proto.Error_ERROR_ABORTED {
-							logrus.Fatal("The Transfer was aborted, stopping...")
-						}
-					} else {
-						logrus.Errorf("could not cast %s to a error state type", string(resp.Kvs[0].Value))
-					}
-				}
+	for {
+		select {
+		case <-expiryTicker.C:
+			resp, err := client.api.Heartbeat(hCtx, &emptypb.Empty{})
+			handleExpiryResponse(resp, err)
 
-			case <-quit:
-				abortTicker.Stop()
-				logrus.Warnf("abort check was stopped for transfer[%s]", t.GetTransferID())
-				return
-			}
+		case <-ctx.Done():
+			expiryTicker.Stop()
+			logrus.Warnf("UpdateExpiry was stopped")
+			return
 		}
-	}()
-	return quit
+	}
 }
 
-func updateTransferExpiryOnce(t proto.IncompleteTransfer, em *etcd.ETCDManager) (succeed bool, err error, newExpiry string) {
-	expiryAdvance := viper.GetDuration(defaults.ConfigExpiryAdvanceKey)
+func handleExpiryResponse(resp *proto.FTAHeartbeatResponse, err error) {
+	if err != nil {
+		logrus.Errorf("error committing updated expiry to etcd: %v", err)
+	} else if resp != nil {
+		if resp.GetTransferError() == proto.Error_ERROR_ABORTED {
+			logrus.Fatal("The Transfer was aborted, stopping...")
+		}
 
-	txn, cancel := em.Txn()
+		if resp.GetTransferError() != proto.Error_ERROR_NONE {
+			logrus.Fatalf("The Transfer is in an error state[%s], stopping...", resp.GetTransferError())
+		}
 
-	txn.If(clientv3.Compare(clientv3.Value(t.ETCDErrorKey()), "=", proto.Error_ERROR_NONE.String()))
+		if !resp.Successful {
+			logrus.Fatalf("updating the transfer expiry was unsuccessful")
+		}
+	}
 
-	newExpiry = timestamppb.New(time.Now().Add(expiryAdvance)).AsTime().Format(time.RFC3339)
-	txn.Then(clientv3.OpPut(t.ETCDExpiryKey(), newExpiry))
-	resp, err := txn.Commit()
-	cancel()
-
-	return resp.Succeeded, err, newExpiry
+	logrus.Debugf("successfully updated expiry: %s", resp.NewExpiry.AsTime().Format(time.RFC3339))
 }

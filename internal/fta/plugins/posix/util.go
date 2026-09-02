@@ -15,11 +15,11 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func (p *PosixPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *plugin.FileSystemConfig) (resolvedFTAPath string, foundSymlink string, _ *plugin.FTAPathError) {
+func (p *PosixPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *plugin.FileSystemConfig) (resolvedFTAPath string, foundSymlink string, _ *proto.FTAPathError) {
 	// get fsr for path
 	ftaPath, foundSymlink, pErr, err := ResolvePathWithConfig(userPath, pathType, fsc)
 	if err != nil {
-		return ftaPath, foundSymlink, &plugin.FTAPathError{LeasePath: userPath, PErr: pErr, ErrMessage: fmt.Errorf("failed to get fs result for path[%v]: %v", userPath, err)}
+		return ftaPath, foundSymlink, &proto.FTAPathError{LeasePath: userPath, PErr: pErr, ErrMessage: fmt.Sprintf("failed to get fs result for path[%v]: %v", userPath, err)}
 	}
 
 	return ftaPath, foundSymlink, nil

@@ -25,7 +25,7 @@ func (tw *TransferWorker) handleTransferAbort(it proto.IncompleteTransfer, event
 	actions := []clientv3.Op{}
 	actions = append(actions, clientv3.OpPut(it.ETCDStateKey(), proto.TransferState_TRANSFER_ABORTED.String()))
 
-	resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := tw.em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		tw.log.Errorf("error committing to etcd for transfer[%s]: %v", it.GetTransferID(), err)
 		err := tw.em.CompleteTransfer(it)
@@ -80,7 +80,7 @@ func (tw *TransferWorker) handleTransferAbort(it proto.IncompleteTransfer, event
 		actions = append(actions, clientv3.OpDelete(it.ETCDLeaseListKey(), clientv3.WithPrefix()))
 		actions = append(actions, clientv3.OpPut(it.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)))
 
-		resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+		resp, err := tw.em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil || !resp.Succeeded {
 			tw.log.Errorf("failed to set transfer[%s] to inactive because there was a scheduler setup job found for a lease: %v", it.GetTransferID(), err)
 		} else {

@@ -17,8 +17,8 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, action string, options map[string]*anypb.Any) (pluginErrors plugin.PluginErrors, pluginPathData *string, omit bool) {
-	warnings := []*plugin.FTAPathError{}
+func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, action string, options map[string]*anypb.Any) (pluginErrors *proto.FTAPluginErrors, pluginPathData *string, omit bool) {
+	warnings := []*proto.FTAPathError{}
 
 	p.log.Debugf("Starting posix plugin validation on: %v(%v)", pluginPathInfo.OriginalUserPath, pluginPathInfo.ResolvedFTAPath)
 	p.log.Debugf("using fta source: %v", pluginPathInfo.ResolvedFTAPath)
@@ -32,10 +32,10 @@ func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, acti
 	if _, ok := options[actions.RecursiveFlag]; ok {
 		if err := options[actions.RecursiveFlag].UnmarshalTo(recursive); err != nil {
 			p.log.Errorf("failed to unmarshal recursive flag: %v", err)
-			warnings = append(warnings, &plugin.FTAPathError{
+			warnings = append(warnings, &proto.FTAPathError{
 				LeasePath:  pluginPathInfo.OriginalUserPath,
 				PErr:       proto.Error_ERROR_INVALID_INPUT,
-				ErrMessage: fmt.Errorf("failed to unmarshal recursive flag: %v", err),
+				ErrMessage: fmt.Sprintf("failed to unmarshal recursive flag: %v", err),
 			})
 		}
 	}
@@ -46,10 +46,10 @@ func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, acti
 	if _, ok := options[actions.OmitMissingFlag]; ok {
 		if err := options[actions.OmitMissingFlag].UnmarshalTo(omitMissing); err != nil {
 			p.log.Errorf("failed to unmarshal omit-missing flag: %v", err)
-			warnings = append(warnings, &plugin.FTAPathError{
+			warnings = append(warnings, &proto.FTAPathError{
 				LeasePath:  pluginPathInfo.OriginalUserPath,
 				PErr:       proto.Error_ERROR_INVALID_INPUT,
-				ErrMessage: fmt.Errorf("failed to unmarshal omit-missing flag: %v", err),
+				ErrMessage: fmt.Sprintf("failed to unmarshal omit-missing flag: %v", err),
 			})
 		}
 	}
@@ -58,38 +58,38 @@ func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, acti
 	if permErr != nil {
 		if omitMissing.GetValue() && permErr.PErr == proto.Error_ERROR_FILE_NOT_EXIST {
 			// this source is missing, but the user wants to ignore missing sources
-			return plugin.PluginErrors{Warnings: append(warnings, permErr)}, nil, true
+			return &proto.FTAPluginErrors{Warnings: append(warnings, permErr)}, nil, true
 		}
-		return plugin.PluginErrors{Errors: []*plugin.FTAPathError{permErr}, Warnings: warnings}, nil, false
+		return &proto.FTAPluginErrors{Errors: []*proto.FTAPathError{permErr}, Warnings: warnings}, nil, false
 	}
 
 	if !recursive.GetValue() && isDir {
 		// this source is a dir, but the user didn't provide a recusrive flag. Add it to warnings
-		return plugin.PluginErrors{Warnings: append(warnings, &plugin.FTAPathError{
+		return &proto.FTAPluginErrors{Warnings: append(warnings, &proto.FTAPathError{
 			LeasePath:  pluginPathInfo.OriginalUserPath,
 			PErr:       proto.Error_ERROR_INVALID_INPUT,
-			ErrMessage: fmt.Errorf("omitting directory [%v] use recursive flag to include directories", pluginPathInfo.OriginalUserPath),
+			ErrMessage: fmt.Sprintf("omitting directory [%v] use recursive flag to include directories", pluginPathInfo.OriginalUserPath),
 		})}, nil, true
 	}
 
-	return plugin.PluginErrors{Warnings: warnings}, nil, false
+	return &proto.FTAPluginErrors{Warnings: warnings}, nil, false
 }
 
 // ValidateDestination validates the destination and gets all resolved destinations. This assumes the ftaDestination is already resolved of symlinks
-func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination string, ftaDestination string, fsConfig *plugin.FileSystemConfig) (pluginErrors plugin.PluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string) {
+func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination string, ftaDestination string, fsConfig *plugin.FileSystemConfig) (pluginErrors *proto.FTAPluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string) {
 	p.log.Debugf("posix plugin validating destination[%v](%v) with sources %v", userDestination, ftaDestination, userSources)
 
 	// get destinfo for destination to see if it's a directory or not
 	destInfo, pErr, err := isFTADestDir(ftaDestination)
 	if err != nil {
 		// tErr := fmt.Errorf("failed to determine if destination is directory[%v]: %v", destFTAPath, err)
-		tErr := &plugin.FTAPathError{
+		tErr := &proto.FTAPathError{
 			LeasePath:  userDestination,
-			ErrMessage: fmt.Errorf("failed to determine if destination is directory[%v]: %v", ftaDestination, err),
+			ErrMessage: fmt.Sprintf("failed to determine if destination is directory[%v]: %v", ftaDestination, err),
 			PErr:       pErr,
 		}
 		// return destInfo, foundSymlink, leaseErrors
-		return plugin.PluginErrors{Errors: []*plugin.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
+		return &proto.FTAPluginErrors{Errors: []*proto.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
 	}
 
 	// get all source bases
@@ -99,42 +99,42 @@ func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination 
 
 		// check if any sources are exactly the same as the destination
 		if s == userDestination {
-			tErr := &plugin.FTAPathError{
+			tErr := &proto.FTAPathError{
 				LeasePath:  userDestination,
-				ErrMessage: fmt.Errorf("no source can match the destination: %v", s),
+				ErrMessage: fmt.Sprintf("no source can match the destination: %v", s),
 				PErr:       proto.Error_ERROR_VALIDATION,
 			}
-			return plugin.PluginErrors{Errors: []*plugin.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
+			return &proto.FTAPluginErrors{Errors: []*proto.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
 		}
 	}
 
 	// the dest must exist and be a directory if multiple sources are provided
 	if len(sourceBases) > 1 && (destInfo == proto.DestInfo_DEST_NOT_EXIST || destInfo == proto.DestInfo_DEST_NOT_DIR) {
-		tErr := &plugin.FTAPathError{
+		tErr := &proto.FTAPathError{
 			LeasePath:  userDestination,
-			ErrMessage: fmt.Errorf("destination must exist and be a directory if multiple sources are specified"),
+			ErrMessage: "destination must exist and be a directory if multiple sources are specified",
 			PErr:       proto.Error_ERROR_VALIDATION,
 		}
-		return plugin.PluginErrors{Errors: []*plugin.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
+		return &proto.FTAPluginErrors{Errors: []*proto.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
 	}
 
-	userDestinations = getUserDests(sourceBases, userDestination, fsConfig, destInfo)
+	userDestinations = getUserDests(sourceBases, userDestination, destInfo)
 
-	resolvedFTADests := getResolvedFTADests(sourceBases, ftaDestination, fsConfig, destInfo)
+	resolvedFTADests := getResolvedFTADests(sourceBases, ftaDestination, destInfo)
 	p.log.Debugf("using fta destinations: %v", resolvedFTADests)
 
 	// validate that we have proper permissions
 	p.log.Debugf("validating permissions")
 	pathErrors := validateDestPermissions(p.log, userDestination, resolvedFTADests)
 	if len(pathErrors) > 0 {
-		return plugin.PluginErrors{Errors: pathErrors}, userDestinations, resolvedFTADests, destInfo, make(map[string]*string)
+		return &proto.FTAPluginErrors{Errors: pathErrors}, userDestinations, resolvedFTADests, destInfo, make(map[string]*string)
 	}
 
-	return plugin.PluginErrors{}, userDestinations, resolvedFTADests, destInfo, make(map[string]*string)
+	return &proto.FTAPluginErrors{}, userDestinations, resolvedFTADests, destInfo, make(map[string]*string)
 }
 
 // getUserDests will append all source bases to the user dest depending on what destinfo is
-func getUserDests(sourceBases []string, userDest string, fsConfig *plugin.FileSystemConfig, destinfo proto.DestInfo) (userDests []string) {
+func getUserDests(sourceBases []string, userDest string, destinfo proto.DestInfo) (userDests []string) {
 	userDests = []string{}
 
 	for _, sb := range sourceBases {
@@ -154,7 +154,7 @@ func getUserDests(sourceBases []string, userDest string, fsConfig *plugin.FileSy
 }
 
 // getResolvedFTADests will append all source bases to the resolved fta dest depending on what destinfo is
-func getResolvedFTADests(sourceBases []string, resolvedFTADest string, fsConfig *plugin.FileSystemConfig, destinfo proto.DestInfo) (resolvedFTADests []string) {
+func getResolvedFTADests(sourceBases []string, resolvedFTADest string, destinfo proto.DestInfo) (resolvedFTADests []string) {
 	resolvedFTADests = []string{}
 
 	for _, sb := range sourceBases {
@@ -174,8 +174,8 @@ func getResolvedFTADests(sourceBases []string, resolvedFTADest string, fsConfig 
 }
 
 // validateDestPermissions checks that we have write permission on all destination fta paths
-func validateDestPermissions(log *logger.ConduitLogger, userDestination string, ftaDestinations []string) []*plugin.FTAPathError {
-	pathErrors := []*plugin.FTAPathError{}
+func validateDestPermissions(log *logger.ConduitLogger, userDestination string, ftaDestinations []string) []*proto.FTAPathError {
+	pathErrors := []*proto.FTAPathError{}
 
 	currUser := ""
 	u, err := user.Current()
@@ -196,8 +196,8 @@ func validateDestPermissions(log *logger.ConduitLogger, userDestination string, 
 		)
 		if err != nil {
 			// failed to get access.
-			tErr := fmt.Errorf("user[%v] does not have write permissions for dest parent path[%v]: %v", currUser, cleanDestParentPath, err)
-			pathErrors = append(pathErrors, &plugin.FTAPathError{LeasePath: userDestination, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr})
+			tErr := fmt.Sprintf("user[%v] does not have write permissions for dest parent path[%v]: %v", currUser, cleanDestParentPath, err)
+			pathErrors = append(pathErrors, &proto.FTAPathError{LeasePath: userDestination, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr})
 		}
 	}
 
@@ -206,7 +206,7 @@ func validateDestPermissions(log *logger.ConduitLogger, userDestination string, 
 
 // validateSourcePermissions performs advisory source permission checks for copy/move actions.
 // Symlink sources are validated as symlinks and are not followed.
-func validateSourcePermissions(log *logger.ConduitLogger, transferSource string, ftaSource string, action string, options map[string]*anypb.Any) (ftaPathError *plugin.FTAPathError, isDir bool) {
+func validateSourcePermissions(log *logger.ConduitLogger, transferSource string, ftaSource string, action string, _ map[string]*anypb.Any) (ftaPathError *proto.FTAPathError, isDir bool) {
 	currUser := ""
 	u, err := user.Current()
 	if err != nil {
@@ -219,22 +219,22 @@ func validateSourcePermissions(log *logger.ConduitLogger, transferSource string,
 	case actions.Action_COPY:
 		info, err := os.Lstat(ftaSource)
 		if err != nil {
-			tErr := fmt.Errorf("user[%v] cannot stat source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+			tErr := fmt.Sprintf("user[%v] cannot stat source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
 			if os.IsNotExist(err) {
-				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}, isDir
+				return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}, isDir
 			} else {
-				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
+				return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
 			}
 		}
 
 		if info.Mode()&os.ModeSymlink != 0 {
 			// can we read the link text without following it?
 			if _, err := os.Readlink(ftaSource); err != nil {
-				tErr := fmt.Errorf("user[%v] cannot read symlink source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+				tErr := fmt.Sprintf("user[%v] cannot read symlink source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
 				if os.IsNotExist(err) {
-					return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}, isDir
+					return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}, isDir
 				} else {
-					return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
+					return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
 				}
 			}
 		} else {
@@ -251,18 +251,18 @@ func validateSourcePermissions(log *logger.ConduitLogger, transferSource string,
 				unix.AT_EACCESS,
 			)
 			if err != nil {
-				tErr := fmt.Errorf("user[%v] does not have read permissions for source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
-				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
+				tErr := fmt.Sprintf("user[%v] does not have read permissions for source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+				return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
 			}
 		}
 	case actions.Action_MOVE:
 		info, err := os.Lstat(ftaSource)
 		if err != nil {
-			tErr := fmt.Errorf("user[%v] cannot stat source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
+			tErr := fmt.Sprintf("user[%v] cannot stat source path[%v](%v): %v", currUser, ftaSource, transferSource, err)
 			if os.IsNotExist(err) {
-				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}, isDir
+				return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_FILE_NOT_EXIST, ErrMessage: tErr}, isDir
 			} else {
-				return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
+				return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
 			}
 		}
 
@@ -277,13 +277,13 @@ func validateSourcePermissions(log *logger.ConduitLogger, transferSource string,
 			unix.AT_EACCESS,
 		)
 		if err != nil {
-			tErr := fmt.Errorf("user[%v] does not have write/search permissions for source parent path[%v] for source[%v](%v): %v",
+			tErr := fmt.Sprintf("user[%v] does not have write/search permissions for source parent path[%v] for source[%v](%v): %v",
 				currUser, sourceParent, ftaSource, transferSource, err)
-			return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
+			return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_PERMISSIONS, ErrMessage: tErr}, isDir
 		}
 	default:
-		tErr := fmt.Errorf("cannot determine permissions because action is unrecognized by posix plugin: %v", action)
-		return &plugin.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_CONDUIT_INTERNAL, ErrMessage: tErr}, isDir
+		tErr := fmt.Sprintf("cannot determine permissions because action is unrecognized by posix plugin: %v", action)
+		return &proto.FTAPathError{LeasePath: transferSource, PErr: proto.Error_ERROR_CONDUIT_INTERNAL, ErrMessage: tErr}, isDir
 	}
 
 	return nil, isDir

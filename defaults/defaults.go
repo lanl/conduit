@@ -17,6 +17,7 @@ const (
 	ConfigServerHTTPAllowedOriginsKey        = "server.http.allowed-origins"
 	ConfigServerHTTPAuthModeKey              = "server.http.auth-mode"
 	ConfigServerHostnameKey                  = "server.hostname"
+	ConfigServerSocketDirKey                 = "server.socket-dir"
 	ConfigAuthKeytabKey                      = "auth.keytab"
 	ConfigInternalCACertKey                  = "auth.internal-ca-cert"
 	ConfigInternalCAKeyKey                   = "auth.internal-ca-key"
@@ -117,6 +118,13 @@ const (
 	DefaultCertPostalCode   = "87545"
 
 	DefaultOAuthUserFallback = true
+
+	FTASocketEnvVar = "CONDUIT_FTA_SOCKET"
+
+	DefaultExpiryAdvance = "60s"
+
+	DefaultVerifySleepDuration = 5 * time.Second
+	DefaultVerifyRetryCount    = 20
 )
 
 // CLI default values

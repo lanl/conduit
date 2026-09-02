@@ -23,8 +23,8 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
-	updateTransferProgress(proto.ETCDStatusDetails{
+func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) *proto.FTAPluginErrors {
+	updateTransferProgress(&proto.ETCDStatusDetails{
 		PluginStatus: "starting pftool",
 	})
 
@@ -88,11 +88,11 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	err = plugin.GetPluginConfigsFromViper(PftoolPluginKey, &pftoolConfig)
 	if err != nil {
 		cmdCancel(fmt.Errorf("failed to get pftool config: %v", err))
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
-					ErrMessage: fmt.Errorf("failed to get pftool config: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get pftool config: %v", err),
 				},
 			},
 		}
@@ -109,11 +109,11 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	stdoutp, err := cmd.StdoutPipe()
 	if err != nil {
 		cmdCancel(fmt.Errorf("failed to get stdout pipe from command: %v", err))
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_PFTOOL_FAILED,
-					ErrMessage: fmt.Errorf("failed to get stdout pipe from command: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get stdout pipe from command: %v", err),
 				},
 			},
 		}
@@ -122,11 +122,11 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	stderrp, err := cmd.StderrPipe()
 	if err != nil {
 		cmdCancel(fmt.Errorf("failed to get stderr pipe from command: %v", err))
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_PFTOOL_FAILED,
-					ErrMessage: fmt.Errorf("failed to get stderr pipe from command: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get stderr pipe from command: %v", err),
 				},
 			},
 		}
@@ -136,11 +136,11 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	currUser, err := user.Current()
 	if err != nil {
 		cmdCancel(fmt.Errorf("failed to get current user: %v", err))
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_CONDUIT_INTERNAL,
-					ErrMessage: fmt.Errorf("failed to get current user: %v", err),
+					ErrMessage: fmt.Sprintf("failed to get current user: %v", err),
 				},
 			},
 		}
@@ -149,7 +149,7 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Env, fmt.Sprintf("HOME=%s", currUser.HomeDir))
 
-	done := make(chan *plugin.FTAPathError)
+	done := make(chan *proto.FTAPathError)
 	fileChunksChan := make(chan uint32, 10)
 
 	stdoutScanner := bufio.NewScanner(stdoutp)
@@ -202,6 +202,9 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	var wg sync.WaitGroup
 	wg.Add(2)
 
+	var stdoutScanErr error
+	var stderrScanErr error
+
 	// this go routine will watch the stderr pipe and add it to the stderrText variable
 	go func() {
 		defer wg.Done()
@@ -210,6 +213,10 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 			t := stderrScanner.Text()
 			p.log.Errorf("command error text: %v", t)
 			stderrText = fmt.Sprintf("%v\n%v", stderrText, strings.ToValidUTF8(t, "[invalid-utf8]"))
+		}
+
+		if err := stderrScanner.Err(); err != nil {
+			stderrScanErr = fmt.Errorf("failed reading pftool stderr: %w", err)
 		}
 	}()
 
@@ -226,35 +233,35 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 				b := []byte(strings.TrimSpace(after))
 				pmt, err := getPFToolMessageType(b)
 				if err != nil {
-					done <- &plugin.FTAPathError{PErr: proto.Error_ERROR_PFTOOL_FAILED, ErrMessage: fmt.Errorf("failed to parse pftool message type: %v", err)}
+					done <- &proto.FTAPathError{PErr: proto.Error_ERROR_PFTOOL_FAILED, ErrMessage: fmt.Sprintf("failed to parse pftool message type: %v", err)}
 					return
 				}
 
-				var fErr error
+				var fErr string
 
 				switch pmt {
 				case PFTMessageType_ERROR:
 					pm, err := parsePFTError(b)
 					if err != nil {
-						fErr = fmt.Errorf("failed to parse pftool error message: %v %v", string(b), err)
+						fErr = fmt.Sprintf("failed to parse pftool error message: %v %v", string(b), err)
 						break
 					}
 					if pm.Class == "NONFATAL" {
-						nfErr := fmt.Errorf("pftool nonfatal error message: class: %v errno: %v message: %v origin: %v", pm.Class, pm.Errno, pm.Message, pm.Origin)
+						nfErr := fmt.Sprintf("pftool nonfatal error message: class: %v errno: %v message: %v origin: %v", pm.Class, pm.Errno, pm.Message, pm.Origin)
 						p.log.Error(nfErr)
 						nonfatalErrors = fmt.Sprintf("%v\n%v", nonfatalErrors, nfErr)
 					} else {
-						fErr = fmt.Errorf("pftool error message: class: %v errno: %v message: %v origin: %v", pm.Class, pm.Errno, pm.Message, pm.Origin)
+						fErr = fmt.Sprintf("pftool error message: class: %v errno: %v message: %v origin: %v", pm.Class, pm.Errno, pm.Message, pm.Origin)
 						break
 					}
 				case PFTMessageType_ACCUM:
 					pm, err := parsePFTAccum(b)
 					if err != nil {
-						fErr = fmt.Errorf("failed to parse pftool accum message: %v %v", string(b), err)
+						fErr = fmt.Sprintf("failed to parse pftool accum message: %v %v", string(b), err)
 						break
 					}
 					p.log.Infof("pftool accum message: dataFinished: %v bandwidth: %v filesChunks: %v", pm.DataFinished, pm.Bandwidth, pm.FilesChunks)
-					uErr := updateTransferProgress(proto.ETCDStatusDetails{
+					uErr := updateTransferProgress(&proto.ETCDStatusDetails{
 						Data:        pm.DataFinished,
 						Bandwidth:   pm.Bandwidth,
 						FilesChunks: uint32(pm.FilesChunks),
@@ -266,7 +273,7 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 				case PFTMessageType_NOMOVE:
 					pm, err := parsePFTNoMove(b)
 					if err != nil {
-						fErr = fmt.Errorf("failed to parse pftool nomove message: %v %v", string(b), err)
+						fErr = fmt.Sprintf("failed to parse pftool nomove message: %v %v", string(b), err)
 						break
 					}
 					p.log.Infof("pftool NOMOVE message: path: %v", pm.Path)
@@ -274,18 +281,18 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 				case PFTMessageType_HEADER:
 					pm, perr := parsePFTHeader(b)
 					if perr != nil {
-						fErr = fmt.Errorf("failed to parse pftool header message: %v %v", string(b), err)
+						fErr = fmt.Sprintf("failed to parse pftool header message: %v %v", string(b), err)
 						break
 					}
 					p.log.Infof("pftool header message: dstfs: %v srcfs: %v", pm.DestinationFS, pm.SourceFS)
 				case PFTMessageType_FOOTER:
 					pm, perr := parsePFTFooter(b)
 					if perr != nil {
-						fErr = fmt.Errorf("failed to parse pftool footer message: %v %v", string(b), err)
+						fErr = fmt.Sprintf("failed to parse pftool footer message: %v %v", string(b), err)
 						break
 					}
 					p.log.Infof("pftool footer message: data: %v bandwidth: %v filesChunks: %v directories: %v files: %v", pm.Data, pm.Bandwidth, pm.FilesChunks, pm.Directories, pm.Files)
-					uErr := updateTransferProgress(proto.ETCDStatusDetails{
+					uErr := updateTransferProgress(&proto.ETCDStatusDetails{
 						Data:        pm.Data,
 						Bandwidth:   pm.Bandwidth,
 						FilesChunks: uint32(pm.FilesChunks),
@@ -301,23 +308,27 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 					p.log.Debugf("conduit message text: %v", t)
 				}
 
-				if fErr != nil {
-					done <- &plugin.FTAPathError{PErr: proto.Error_ERROR_PFTOOL_FAILED, ErrMessage: fErr}
+				if fErr != "" {
+					done <- &proto.FTAPathError{PErr: proto.Error_ERROR_PFTOOL_FAILED, ErrMessage: fErr}
 					return
 				}
 			} else {
 				p.log.Debugf("pfcp output text: %v", t)
 			}
 		}
+
+		if err := stdoutScanner.Err(); err != nil {
+			stdoutScanErr = fmt.Errorf("failed reading pftool stdout: %w", err)
+		}
 	}()
 
 	// start the pftool command
 	if err := cmd.Start(); err != nil {
-		return plugin.PluginErrors{
-			Errors: []*plugin.FTAPathError{
+		return &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{
 				{
 					PErr:       proto.Error_ERROR_PFTOOL_FAILED,
-					ErrMessage: fmt.Errorf("failed to start pftool command: %v", err),
+					ErrMessage: fmt.Sprintf("failed to start pftool command: %v", err),
 				},
 			},
 		}
@@ -327,22 +338,46 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 	go func() {
 		// wait for scanners to finish
 		wg.Wait()
+
 		err := cmd.Wait()
 		if err != nil {
-			done <- &plugin.FTAPathError{PErr: proto.Error_ERROR_PFTOOL_FAILED, ErrMessage: fmt.Errorf("pftool returned non zero exit code: %v %v", err, context.Cause(cmdContext))}
+			done <- &proto.FTAPathError{
+				PErr:       proto.Error_ERROR_PFTOOL_FAILED,
+				ErrMessage: fmt.Sprintf("pftool returned non zero exit code: %v %v", err, context.Cause(cmdContext)),
+			}
 			return
 		}
-		done <- &plugin.FTAPathError{PErr: proto.Error_ERROR_NONE, ErrMessage: nil}
+
+		if stderrScanErr != nil {
+			done <- &proto.FTAPathError{
+				PErr:       proto.Error_ERROR_PFTOOL_FAILED,
+				ErrMessage: stderrScanErr.Error(),
+			}
+			return
+		}
+
+		if stdoutScanErr != nil {
+			done <- &proto.FTAPathError{
+				PErr:       proto.Error_ERROR_PFTOOL_FAILED,
+				ErrMessage: stdoutScanErr.Error(),
+			}
+			return
+		}
+
+		done <- &proto.FTAPathError{
+			PErr:       proto.Error_ERROR_NONE,
+			ErrMessage: "",
+		}
 	}()
 
-	updateTransferProgress(proto.ETCDStatusDetails{
+	updateTransferProgress(&proto.ETCDStatusDetails{
 		PluginStatus: "pftool started",
 	})
 
 	// this will wait for the cmd to finish from the go routine
 	errorOccurred := <-done
 
-	warnings := []*plugin.FTAPathError{}
+	warnings := []*proto.FTAPathError{}
 
 	// check if pftool printed a NOMOVE message
 	if detectedNoMovePath != "" {
@@ -350,16 +385,16 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 		if action == actions.Action_MOVE {
 			err := updateAction(action, actions.Action_COPY)
 			if err != nil {
-				if errorOccurred.ErrMessage == nil {
-					errorOccurred = &plugin.FTAPathError{PErr: proto.Error_ERROR_ETCD_CONNECTION, ErrMessage: fmt.Errorf("failed to update transfer action to %v: %v", actions.Action_COPY, err)}
+				if errorOccurred.ErrMessage == "" {
+					errorOccurred = &proto.FTAPathError{PErr: proto.Error_ERROR_ETCD_CONNECTION, ErrMessage: fmt.Sprintf("failed to update transfer action to %v: %v", actions.Action_COPY, err)}
 				} else {
-					warnings = append(warnings, &plugin.FTAPathError{
-						ErrMessage: fmt.Errorf("detected write protected children[%v] but failed to update transfer action to copy: %v", detectedNoMovePath, err),
+					warnings = append(warnings, &proto.FTAPathError{
+						ErrMessage: fmt.Sprintf("detected write protected children[%v] but failed to update transfer action to copy: %v", detectedNoMovePath, err),
 					})
 				}
 			} else {
-				warnings = append(warnings, &plugin.FTAPathError{
-					ErrMessage: fmt.Errorf("detected write protected children[%v]. changed transfer action to COPY", detectedNoMovePath),
+				warnings = append(warnings, &proto.FTAPathError{
+					ErrMessage: fmt.Sprintf("detected write protected children[%v]. changed transfer action to COPY", detectedNoMovePath),
 				})
 			}
 		} else {
@@ -367,30 +402,30 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 		}
 	}
 
-	pluginErrors := plugin.PluginErrors{
+	pluginErrors := &proto.FTAPluginErrors{
 		Warnings: warnings,
 	}
 
-	if errorOccurred.ErrMessage != nil {
+	if errorOccurred.ErrMessage != "" {
 		// an error occurred. Format the cmd line in case there are a lot of sources
 		cmdOuput := cmd.String()
 		if len(cmd.String()) > 5000 {
 			cmdOuput = cmd.String()[:2500] + " ...... " + cmd.String()[len(cmd.String())-2500:]
 		}
-		errMessage := fmt.Errorf("an error occurred during command[%v]: %+v\n\npftool stderr output:\n%v", cmdOuput, errorOccurred.ErrMessage, stderrText)
+		errMessage := fmt.Sprintf("an error occurred during command[%v]: %+v\n\npftool stderr output:\n%v", cmdOuput, errorOccurred.ErrMessage, stderrText)
 		if p.log.GetLevel() == logrus.DebugLevel {
-			errMessage = fmt.Errorf("an error occurred during command[%v]: %+v\n\ncmd environment: [%+v]\n\npftool stderr output:\n%v\n\npftool stdout output:\n%v", cmdOuput, errorOccurred.ErrMessage, cmd.Environ(), stderrText, stdoutText)
+			errMessage = fmt.Sprintf("an error occurred during command[%v]: %+v\n\ncmd environment: [%+v]\n\npftool stderr output:\n%v\n\npftool stdout output:\n%v", cmdOuput, errorOccurred.ErrMessage, cmd.Environ(), stderrText, stdoutText)
 		}
 		if nonfatalErrors != "" {
-			errMessage = fmt.Errorf("%s\n\npftool nonfatal errors:\n%s", errMessage, nonfatalErrors)
+			errMessage = fmt.Sprintf("%s\n\npftool nonfatal errors:\n%s", errMessage, nonfatalErrors)
 		}
 
-		pluginErrors.Errors = append(pluginErrors.Errors, &plugin.FTAPathError{
+		pluginErrors.Errors = append(pluginErrors.Errors, &proto.FTAPathError{
 			PErr:       errorOccurred.PErr,
 			ErrMessage: errMessage,
 		})
 	} else {
-		updateTransferProgress(proto.ETCDStatusDetails{
+		updateTransferProgress(&proto.ETCDStatusDetails{
 			PluginStatus: "pftool complete",
 		})
 	}

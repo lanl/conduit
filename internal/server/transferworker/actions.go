@@ -3,7 +3,6 @@
 package transferworker
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"time"
@@ -19,22 +18,6 @@ import (
 
 // startSchedulerJob submits a job to scheduler
 func (tw *TransferWorker) startSchedulerJob(t proto.IncompleteTransfer, command proto.SchedulerCommand, successfulState proto.TransferState) (proto.Error, error) {
-	// if this is a validation job, add the transfer as a user to etcd
-	if command == proto.SchedulerCommand_VALIDATION {
-		// start updating the expiry for the transfer. Adding a user to etcd locks and can get backed up if a ton of transfers get submitted at once so that's why we need to keep the expiry updated
-		updateExpiryStopCtx, updateExpiryCancel := context.WithCancel(context.Background())
-		go tw.em.UpdateExpiryConstantly(t, updateExpiryStopCtx, "adding transfer user to etcd")
-
-		// create etcd user for transfer
-		err := tw.em.AddTransferUser(t.GetTransferID())
-		if err != nil {
-			updateExpiryCancel()
-			return proto.Error_ERROR_ETCD_INTERNAL, fmt.Errorf("worker[%s]: error adding user[%s] to etcd: %v", tw.id, t.GetTransferID(), err)
-		}
-
-		updateExpiryCancel()
-	}
-
 	// get priority and createdTime
 	createdTime, priority, err := tw.getCreatedTimeAndPriority(t)
 	if err != nil {
@@ -76,7 +59,7 @@ func (tw *TransferWorker) startSchedulerJob(t proto.IncompleteTransfer, command 
 	actions = append(actions, clientv3.OpPut(t.ETCDExpiryKey(), expiry.Format(time.RFC3339)))
 
 	// SEND IT
-	resp, err := tw.em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := tw.em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return proto.Error_ERROR_ETCD_CONNECTION, fmt.Errorf("failed to submit [%s] job for transfer[%v]: error while adding job to etcd: %v", command, t.GetTransferID(), err)
 	}
@@ -95,7 +78,7 @@ func (tw *TransferWorker) getCreatedTimeAndPriority(it proto.IncompleteTransfer)
 		clientv3.OpGet(it.ETCDPriorityKey()),
 	}
 
-	resp, err := tw.em.RetryTxn(nil, &txnActions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := tw.em.RetryTxn(nil, &txnActions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return nil, 0, err
 	}

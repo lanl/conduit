@@ -495,7 +495,7 @@ func (em *ETCDManager) CompleteTransfer(t proto.IncompleteTransfer) error {
 		clientv3.OpDelete(t.ETCDJobsKey(), clientv3.WithPrefix()),
 	}
 
-	resp, err := em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return fmt.Errorf("error while setting active key to false for transfer[%s]: %v", t.GetTransferID(), err)
 	}
@@ -514,7 +514,7 @@ func (em *ETCDManager) CompleteTransfer(t proto.IncompleteTransfer) error {
 		clientv3.OpPut(t.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)),
 	}
 
-	resp, err = em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err = em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return fmt.Errorf("error while setting archive state to ready for transfer[%s]: %v", t.GetTransferID(), err)
 	}
@@ -526,7 +526,7 @@ func (em *ETCDManager) CompleteTransfer(t proto.IncompleteTransfer) error {
 	comparisons = []clientv3.Cmp{clientv3.Compare(clientv3.Value(t.ETCDEndTimeKey()), "=", time.Unix(0, 0).UTC().Format(time.RFC3339))}
 	actions = []clientv3.Op{clientv3.OpPut(t.ETCDEndTimeKey(), timestamppb.Now().AsTime().Format(time.RFC3339))}
 
-	resp, err = em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err = em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return fmt.Errorf("error while setting endtime key to now for transfer[%s]: %v", t.GetTransferID(), err)
 	}
@@ -554,10 +554,14 @@ func (em *ETCDManager) safelyAddErr(it proto.IncompleteTransfer, errorState prot
 	for i := 1; i <= defaults.MaxRetries; i++ {
 		txn, cancel := em.Txn()
 		txn.If(clientv3.Compare(clientv3.Value(errKey), "=", proto.Error_ERROR_NONE.String()))
+
 		actions := []clientv3.Op{}
 		actions = append(actions, clientv3.OpPut(errKey, errorState.String()))
 		actions = append(actions, clientv3.OpPut(errMessageKey, errorMessage.Error()))
 		txn.Then(actions...)
+
+		// If the comparison fails, return the current value of the error.
+		txn.Else(clientv3.OpGet(errKey))
 
 		resp, err := txn.Commit()
 		cancel()
@@ -580,6 +584,25 @@ func (em *ETCDManager) safelyAddErr(it proto.IncompleteTransfer, errorState prot
 			}
 		}
 		if !resp.Succeeded {
+			if len(resp.Responses) == 0 {
+				em.log.Errorf("comparison failed but etcd did not return the existing error for transfer[%s]", it.GetTransferID())
+				return false, proto.Error_ERROR_NONE, nil
+			}
+
+			getResp := resp.Responses[0].GetResponseRange()
+			if getResp == nil || len(getResp.Kvs) == 0 {
+				em.log.Errorf("comparison failed but error key did not exist for transfer[%s]", it.GetTransferID())
+				return false, proto.Error_ERROR_NONE, nil
+			}
+
+			existingError, ok := proto.Error_value[string(getResp.Kvs[0].Value)]
+			if !ok {
+				em.log.Errorf("comparison failed but existing error value[%s] was invalid for transfer[%s]", string(getResp.Kvs[0].Value), it.GetTransferID())
+				return false, proto.Error_ERROR_NONE, nil
+			}
+
+			em.log.Debugf("existing error: %s", existingError)
+
 			return false, proto.Error_ERROR_NONE, nil
 		}
 
@@ -658,7 +681,7 @@ func (em *ETCDManager) AbortTransfer(t *proto.TransferDetails, errorMessage erro
 		clientv3.OpPut(t.ETCDErrorMessageKey(), errorMessage.Error()),
 	}
 
-	resp, err := em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return err
 	}
@@ -673,7 +696,7 @@ func (em *ETCDManager) AbortTransfer(t *proto.TransferDetails, errorMessage erro
 			clientv3.OpDelete(t.ETCDLeaseListKey(), clientv3.WithPrefix()),
 		}
 
-		resp, err := em.RetryTxn(&comparisons, &actions, defaults.MaxRetries, defaults.RetryDelay)
+		resp, err := em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil {
 			em.log.Errorf("failed to remove lease from etcd for transfer[%s]: %v", t.GetTransferID(), err)
 		}
@@ -732,7 +755,7 @@ func (em *ETCDManager) SubmitTransfers(transfers []*proto.TransferDetails) {
 		em.log.Debugf("sending chunk %v of %v", ci, len(opsChunks))
 
 		var tErr error
-		resp, err := em.RetryTxn(nil, &c, defaults.MaxRetries, defaults.RetryDelay)
+		resp, err := em.RetryTxn(nil, &c, nil, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil {
 			tErr = fmt.Errorf("error while submitting transfers: %v", err)
 		}
@@ -909,7 +932,7 @@ func ParseCertFromBytes(pemBytes []byte) (*tls.Certificate, uuid.UUID, error) {
 }
 
 // RetryTxn will create a transaction and commit it a set number of times
-func (em *ETCDManager) RetryTxn(compare *[]clientv3.Cmp, actions *[]clientv3.Op, retryCount int, sleepDur time.Duration) (*clientv3.TxnResponse, error) {
+func (em *ETCDManager) RetryTxn(compare *[]clientv3.Cmp, actions *[]clientv3.Op, elses *[]clientv3.Op, retryCount int, sleepDur time.Duration) (*clientv3.TxnResponse, error) {
 	var resp *clientv3.TxnResponse
 	var err error
 
@@ -920,6 +943,9 @@ func (em *ETCDManager) RetryTxn(compare *[]clientv3.Cmp, actions *[]clientv3.Op,
 		}
 		if actions != nil {
 			txn.Then(*actions...)
+		}
+		if elses != nil {
+			txn.Else(*elses...)
 		}
 
 		resp, err = txn.Commit()
@@ -1014,7 +1040,7 @@ func (em *ETCDManager) AddWarnings(it proto.IncompleteTransfer, newWarnings []st
 			comparisons := &[]clientv3.Cmp{clientv3.Compare(clientv3.Value(it.ETCDWarningsKey()), "=", string(oldWarningsJson))}
 			actions := &[]clientv3.Op{clientv3.OpPut(it.ETCDWarningsKey(), string(newWarningsJson))}
 
-			resp, err := em.RetryTxn(comparisons, actions, defaults.MaxRetries, defaults.RetryDelay)
+			resp, err := em.RetryTxn(comparisons, actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 			if resp != nil {
 				succeed = resp.Succeeded
 			}
@@ -1259,7 +1285,7 @@ func (em *ETCDManager) RollbackState(it proto.IncompleteTransfer, fromState, toS
 		clientv3.OpPut(it.ETCDExpiryKey(), time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)).Format(time.RFC3339)),
 	}
 
-	resp, err := em.RetryTxn(&comparisons, actions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := em.RetryTxn(&comparisons, actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil || !resp.Succeeded {
 		return fmt.Errorf("failed to rollback state to %s for transfer[%s]: %v", toState, it.GetTransferID(), err)
 	}
@@ -1324,7 +1350,7 @@ func (em *ETCDManager) GetActionAndOptions(it proto.IncompleteTransfer) (action 
 		clientv3.OpGet(it.ETCDOptionsKey()),
 	}
 
-	resp, err := em.RetryTxn(nil, &txnActions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := em.RetryTxn(nil, &txnActions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1367,7 +1393,7 @@ func (em *ETCDManager) GetSourcesAndDestination(it proto.IncompleteTransfer) (so
 		clientv3.OpGet(it.ETCDDestinationKey()),
 	}
 
-	resp, err := em.RetryTxn(nil, &txnActions, defaults.MaxRetries, defaults.RetryDelay)
+	resp, err := em.RetryTxn(nil, &txnActions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
 		return nil, "", err
 	}

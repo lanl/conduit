@@ -7,7 +7,6 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/etcd/util"
@@ -25,9 +24,6 @@ const (
 	envPrefix                   = "CONDUIT_FTA"
 	DefaultCACertName           = "conduit-ca.pem"
 	DefaultExpiryUpdateInterval = "30s"
-	DefaultExpiryAdvance        = "5m"
-	DefaultVerifySleepDuration  = 5 * time.Second
-	DefaultVerifyRetryCount     = 20
 )
 
 var (
@@ -112,12 +108,12 @@ func createDefaultConfig() {
 	viper.SetDefault(defaults.ConfigInternalCACertKey, DefaultCACertLocation)
 
 	viper.SetDefault(defaults.ConfigExpiryIntervalKey, DefaultExpiryUpdateInterval)
-	viper.SetDefault(defaults.ConfigExpiryAdvanceKey, DefaultExpiryAdvance)
+	viper.SetDefault(defaults.ConfigExpiryAdvanceKey, defaults.DefaultExpiryAdvance)
 
 	setPluginDefaults()
 
-	viper.SetDefault(defaults.ConfigFTAVerifyRetryCountKey, DefaultVerifyRetryCount)
-	viper.SetDefault(defaults.ConfigFTAVerifySleepDurationKey, DefaultVerifySleepDuration)
+	viper.SetDefault(defaults.ConfigFTAVerifyRetryCountKey, defaults.DefaultVerifyRetryCount)
+	viper.SetDefault(defaults.ConfigFTAVerifySleepDurationKey, defaults.DefaultVerifySleepDuration)
 
 	viper.SetDefault(defaults.ConfigFilesystemsKey, DefaultFileSystems)
 

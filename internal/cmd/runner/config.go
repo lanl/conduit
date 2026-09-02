@@ -23,6 +23,7 @@ const (
 	DefaultInternalCACertName = "conduit-internal-ca.pem"
 	DefaultInternalCAKeyName  = "conduit-internal-key.pem"
 	DefaultFTAPath            = "conduit-fta"
+	DefaultFTASocketDir       = "/run/conduit/fta"
 )
 
 var (
@@ -104,6 +105,13 @@ func createDefaultConfig() {
 	viper.SetDefault(defaults.ConfigFTAPathKey, DefaultFTAPath)
 	viper.SetDefault(defaults.ConfigFTAOptionsKey, DefaultFTAOptions)
 	viper.SetDefault(defaults.ConfigFTAEnvKey, DefaultEnvironment)
+
+	viper.SetDefault(defaults.ConfigServerSocketDirKey, DefaultFTASocketDir)
+
+	viper.SetDefault(defaults.ConfigExpiryAdvanceKey, defaults.DefaultExpiryAdvance)
+
+	viper.SetDefault(defaults.ConfigFTAVerifyRetryCountKey, defaults.DefaultVerifyRetryCount)
+	viper.SetDefault(defaults.ConfigFTAVerifySleepDurationKey, defaults.DefaultVerifySleepDuration)
 
 	err := viper.SafeWriteConfig()
 	if err != nil {

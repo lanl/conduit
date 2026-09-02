@@ -1,6 +1,6 @@
 // Copyright 2026. Triad National Security, LLC. All rights reserved.
 
-package internal
+package runner
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
+
+var _ proto.ConduitRunnerApiServer = (*Runner)(nil)
 
 /*
 The ruuners periodically sends the current status of the nodes to the scheduler.
@@ -93,6 +96,12 @@ func NewRunner(log *logger.ConduitLogger, cert *pki.InternalCertManager, em *etc
 func (r *Runner) StartRunner() error {
 	// watch for a kill from the operating system
 	go r.signalHandler()
+
+	// create fta socket dir
+	err := initFTASocketDir()
+	if err != nil {
+		r.log.Fatalf("failed to create socket dir: %v", err)
+	}
 
 	serverCert, err := r.cm.GetServerTLSCert()
 	if err != nil {
@@ -209,13 +218,15 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 		return
 	}
 
-	// Creating the client's certificate
-	cert, err := r.cm.CreateSignedClientCert(req.GetTransferID(), time.Now().AddDate(0, 0, 10)) // tls stuff : what we pass to etcd
+	listener, socketPath, err := newFTAListener(cred)
 	if err != nil {
-		dErr = fmt.Errorf("error defining cert: %v", err)
+		dErr = fmt.Errorf("failed to create fta unix socket listener: %v", err)
 		r.log.Error(dErr)
 		return
 	}
+
+	defer os.Remove(socketPath)
+	defer listener.Close()
 
 	cmdOptions := viper.GetStringSlice(defaults.ConfigFTAOptionsKey)
 
@@ -231,6 +242,7 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 	// Appending the command enviornment variable
 	cmd.Env = os.Environ()
 	cmd.Env = append(cmd.Environ(), fmt.Sprintf("SLURM_JOB_NODELIST=%s", strings.Join(req.Nodes, ",")))
+	cmd.Env = append(cmd.Environ(), fmt.Sprintf("%s=%s", defaults.FTASocketEnvVar, socketPath))
 
 	// set extra config defined environment variables
 	cmdEnvMap := viper.GetStringMapString(defaults.ConfigFTAEnvKey)
@@ -238,14 +250,9 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 		cmd.Env = append(cmd.Environ(), fmt.Sprintf("%s=%s", k, v))
 	}
 
-	inBuffer := new(bytes.Buffer)
 	outBuffer := new(bytes.Buffer)
 	errBuffer := new(bytes.Buffer)
 
-	// writing the certificate to the input buffer
-	inBuffer.Write(cert)
-
-	cmd.Stdin = inBuffer
 	cmd.Stdout = outBuffer
 	cmd.Stderr = errBuffer
 
@@ -255,7 +262,48 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 	}
 	r.log.Infof("running %s for transfer %s with uid: %v gid: %v, groups: %v", req.GetCmd(), transfer.GetTransferID(), cred.Uid, cred.Gid, cred.Groups)
 
-	fErr := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		dErr = fmt.Errorf("failed to start command[%v]: %v", strings.Join(append([]string{ftaPath}, cmdArgs...), " "), err)
+		return
+	}
+
+	ftaConn, err := acceptFTA(listener, cmd.Process.Pid, cred.Uid)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+
+		dErr = fmt.Errorf("failed to accept FTA connection: %v", err)
+		return
+	}
+
+	// We only allow one connection.
+	listener.Close()
+	os.Remove(socketPath)
+
+	ftaAPI := NewFtaApi(r, id, req.GetCmd(), req.GetNodes())
+
+	ftaServer := grpc.NewServer()
+
+	proto.RegisterConduitFTAApiServer(
+		ftaServer,
+		ftaAPI,
+	)
+
+	grpcListener := newSingleConnListener(ftaConn)
+
+	go func() {
+		if err := ftaServer.Serve(grpcListener); err != nil &&
+			!errors.Is(err, net.ErrClosed) {
+			r.log.Errorf("FTA gRPC server failed for transfer[%v]: %v", id, err)
+		}
+	}()
+
+	fErr := cmd.Wait()
+
+	ftaServer.Stop()
+	grpcListener.Close()
+	ftaConn.Close()
+
 	if fErr != nil {
 		dErr = fmt.Errorf("error running command[%v]: %v %v", strings.Join(append([]string{ftaPath}, cmdArgs...), " "), fErr, errBuffer.String())
 		r.log.Error(dErr)
@@ -266,7 +314,6 @@ func (r *Runner) RunConduitFTA(id uuid.UUID, req *proto.JobRequest) {
 
 	r.log.Debugf("Command stderr: %v", errBuffer.String())
 	r.log.Debugf("Command stdout: %v", outBuffer.String())
-
 }
 
 // ETCDWatcher watches the status of the jobs in etcd
@@ -496,4 +543,66 @@ func getCredentials(username string) (*syscall.Credential, error) {
 		Gid:    uint32(gid64),
 		Groups: groups,
 	}, nil
+}
+
+func initFTASocketDir() error {
+	ftaSocketDir := viper.GetString(defaults.ConfigServerSocketDirKey)
+
+	if err := os.MkdirAll(ftaSocketDir, 0711); err != nil {
+		return fmt.Errorf("failed to create FTA socket directory: %w", err)
+	}
+
+	info, err := os.Lstat(ftaSocketDir)
+	if err != nil {
+		return fmt.Errorf("failed to stat FTA socket directory: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("FTA socket directory cannot be a symlink")
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("failed to get ownership of FTA socket directory")
+	}
+
+	if stat.Uid != uint32(os.Geteuid()) {
+		return fmt.Errorf("FTA socket directory is owned by uid %d, expected %d", stat.Uid, os.Geteuid())
+	}
+
+	if err := os.Chmod(ftaSocketDir, 0711); err != nil {
+		return fmt.Errorf("failed to set FTA socket directory permissions: %w", err)
+	}
+
+	return nil
+}
+
+func newFTAListener(cred *syscall.Credential) (*net.UnixListener, string, error) {
+	ftaSocketDir := viper.GetString(defaults.ConfigServerSocketDirKey)
+
+	socketPath := filepath.Join(ftaSocketDir, uuid.NewString()+".sock")
+
+	addr, err := net.ResolveUnixAddr("unix", socketPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	listener, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if err := os.Chown(socketPath, int(cred.Uid), int(cred.Gid)); err != nil {
+		listener.Close()
+		os.Remove(socketPath)
+		return nil, "", err
+	}
+
+	if err := os.Chmod(socketPath, 0600); err != nil {
+		listener.Close()
+		os.Remove(socketPath)
+		return nil, "", err
+	}
+
+	return listener, socketPath, nil
 }

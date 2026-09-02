@@ -485,7 +485,7 @@ func (s *Scheduler) jobRequest() (keepScheduling bool) {
 			clientv3.OpDelete(string(it.ETCDJobsKey())),
 		}
 
-		res, err := s.em.RetryTxn(&compares, &actions, defaults.MaxRetries, defaults.RetryDelay)
+		res, err := s.em.RetryTxn(&compares, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil {
 			s.log.Errorf("failed to delete the transfer's %s job key [%s] [%s] from etcd: %v", top.JobID, it.ETCDJobsKey(), top.SchedulerCommand, err)
 			return false
@@ -552,7 +552,7 @@ func (s *Scheduler) jobRequest() (keepScheduling bool) {
 					clientv3.OpPut(string(it.ETCDJobsKey()), string(schedulerJobValue)),
 				}
 
-				res, err := s.em.RetryTxn(&compares, &actions, defaults.MaxRetries, defaults.RetryDelay)
+				res, err := s.em.RetryTxn(&compares, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 				if err != nil {
 					s.log.Errorf("failed to re-add the transfer's %s job key [%s] [%s] to etcd: %v", top.JobID, it.ETCDJobsKey(), top.SchedulerCommand, err)
 				} else if !res.Succeeded {

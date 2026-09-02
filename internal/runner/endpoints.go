@@ -1,6 +1,6 @@
 // Copyright 2026. Triad National Security, LLC. All rights reserved.
 
-package internal
+package runner
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 
 // GetNodeStatusStream responds with the list of all jobs running on nodes
 func (r *Runner) GetNodeStatusStream(_ *emptypb.Empty, stream proto.ConduitRunnerApi_GetNodeStatusStreamServer) error {
-
 	streaminfo := &StreamInfo{
 		quitChan: make(chan bool),
 		stream:   &stream,
@@ -103,7 +102,7 @@ func (r *Runner) SubmitFTAJob(ctx context.Context, req *proto.JobRequest) (*prot
 		providedJobs := req.GetExistingJobs()
 		for tid, ji := range r.JobsInfo {
 			if pji, ok := providedJobs[tid]; ok {
-				for cmd, _ := range ji.GetActions() {
+				for cmd := range ji.GetActions() {
 					if _, ok := pji.GetActions()[cmd]; !ok {
 						return &proto.NodeStatus{
 							Jobs:            r.getCurrentJobs(),

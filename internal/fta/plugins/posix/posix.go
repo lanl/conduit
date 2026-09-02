@@ -34,8 +34,8 @@ func (p *PosixPlugin) Initialize(transferID uuid.UUID, log *logger.ConduitLogger
 }
 
 // no op
-func (p *PosixPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) plugin.PluginErrors {
-	return plugin.PluginErrors{}
+func (p *PosixPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginData, destInfo proto.DestInfo, action string, options map[string]*anypb.Any, updateTransferProgress plugin.UpdateTransferProgress, updateAction plugin.UpdateAction) *proto.FTAPluginErrors {
+	return &proto.FTAPluginErrors{}
 }
 
 // no config
