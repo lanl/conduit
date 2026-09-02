@@ -44,13 +44,13 @@ func (p *ArchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathI
 
 	// Arguments for the Archive Stager, set based on type of path passed in
 	args := []string{}
-	ds, err := os.Lstat(pathInfo.OriginalUserPath)
+	ds, err := os.Lstat(pathInfo.ResolvedFTAPath)
 	if err != nil {
 		p.log.Errorf("Bad Source path %s passed to Archive Setup: err = %v", pathInfo.OriginalUserPath, err)
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
 				{
-					LeasePath:  "",
+					LeasePath:  pathInfo.OriginalUserPath,
 					PErr:       proto.Error_ERROR_STAT_FAILED,
 					ErrMessage: fmt.Errorf("Bad path (%s) for Archive Stager: err = %v", pathInfo.OriginalUserPath, err),
 				},
@@ -73,12 +73,12 @@ func (p *ArchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathI
 	})
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		p.log.Errorf("Error running script %s: %v\nOutput: %v", scriptRelPath, err, output)
+		p.log.Errorf("Error running script %s: %v\nOutput: %s", scriptRelPath, err, output)
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
 				{
-					LeasePath:  "",
-					PErr:       proto.Error_ERROR_STAT_FAILED,
+					LeasePath:  pathInfo.OriginalUserPath,
+					PErr:       proto.Error_ERROR_FTA_PLUGIN_FAILED,
 					ErrMessage: fmt.Errorf("Archive Stager non zero exit code: %v", err),
 				},
 			},

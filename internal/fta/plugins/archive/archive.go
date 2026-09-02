@@ -12,7 +12,7 @@ import (
 
 const (
 	ArchivePluginKey     = "archive"
-	DefaultArchiveStager = "archive-tmrequest"
+	DefaultArchiveStager = "samnfs"
 )
 
 var _ plugin.ConduitFTAPlugin = (*ArchivePlugin)(nil)
@@ -32,7 +32,6 @@ func (p *ArchivePlugin) Initialize(transferID uuid.UUID, log *logger.ConduitLogg
 
 	return []plugin.PluginCapability{
 		plugin.SETUP,
-		plugin.TEARDOWN,
 	}
 }
 
