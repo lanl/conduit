@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	ArchivePluginKey         = "archive"
-	DefaultArchiveStager  = "archive-tmrequest"
+	ArchivePluginKey     = "archive"
+	DefaultArchiveStager = "archive-tmrequest"
 )
 
 var _ plugin.ConduitFTAPlugin = (*ArchivePlugin)(nil)
