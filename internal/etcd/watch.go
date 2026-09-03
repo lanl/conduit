@@ -60,7 +60,6 @@ func (em *ETCDManager) StartWatchChannels(rev int64, cancel context.CancelCauseF
 
 // watchTransfers is the go routine that watches changes to the transfers area in etcd. It sends these events to any subscribers
 func (em *ETCDManager) watchTransfers(wc <-chan clientv3.WatchResponse, cancel context.CancelCauseFunc) {
-	// wc, cancel := em.GetWatchChannelPrefix(proto.TransferPrefix)
 	for wresp := range wc {
 		// notify targeted active-state waiters
 		for _, ev := range wresp.Events {
@@ -182,14 +181,8 @@ func (em *ETCDManager) WaitTransfersActive(ids []uuid.UUID, ctx context.Context)
 		pending[id] = struct{}{}
 	}
 
-	//
-	// IMPORTANT:
-	//
-	// Register BEFORE checking etcd.
-	//
-	// That prevents us from missing active=true -> false
-	// between the initial GetActive and registering the waiter.
-	//
+	// Register before checking etcd
+	// This prevents us from missing active=true -> false between the initial GetActive and registering the waiter.
 	em.registerActiveWaiter(waiterID, ids, ch)
 	defer em.unregisterActiveWaiter(waiterID, ids)
 
@@ -228,29 +221,6 @@ func (em *ETCDManager) WaitTransfersActive(ids []uuid.UUID, ctx context.Context)
 
 	return nil
 }
-
-// // UpdateExpiryConstantly will update a transfers expiry every 10 seconds. The new expiry will be the configured ExpiryAdvance duration from the current time
-// func (em *ETCDManager) UpdateExpiryConstantly(it proto.IncompleteTransfer, ctx context.Context) {
-// 	em.log.Debugf("constantly updating expiry for transfer[%v] every %v seconds", it.GetTransferID(), 10)
-
-// 	_, err, _ := em.UpdateExpiryOnce(it)
-// 	if err != nil {
-// 		em.log.Error(err)
-// 	}
-
-// 	for {
-// 		select {
-// 		case <-ctx.Done():
-// 			em.log.Debugf("finished constantly updating expiry for transfer[%v]", it.GetTransferID())
-// 			return
-// 		case <-time.After(10 * time.Second):
-// 			_, err, _ := em.UpdateExpiryOnce(it)
-// 			if err != nil {
-// 				em.log.Error(err)
-// 			}
-// 		}
-// 	}
-// }
 
 // UpdateExpiryOnce will update a transfers expiry one time. The new expiry will be the configured ExpiryAdvance duration from the current time
 func (em *ETCDManager) UpdateExpiryOnce(it proto.IncompleteTransfer, status string) (succeeded bool, err error, newExpiry *timestamppb.Timestamp, transferErrorState proto.Error) {

@@ -1,3 +1,5 @@
+// Copyright 2026. Triad National Security, LLC. All rights reserved.
+
 package fta
 
 import (
