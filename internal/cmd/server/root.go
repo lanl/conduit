@@ -5,10 +5,7 @@ package servercmd
 import (
 	"fmt"
 	"net"
-	"net/http"
 	"os"
-
-	_ "net/http/pprof"
 
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/server/grpcserver"
@@ -41,14 +38,6 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			if viper.GetBool(defaults.ConfigTestKey) {
 				logrus.Error("CONDUIT IN TEST MODE! THIS SHOULD NEVER HAPPEN IN PRODUCTION")
-
-				if debug {
-					go func() {
-						if err := http.ListenAndServe(":6060", nil); err != nil {
-							logrus.Errorf("pprof server failed: %v", err)
-						}
-					}()
-				}
 			}
 			s, err := grpcserver.CreateConduitServer(debug)
 			if err != nil {

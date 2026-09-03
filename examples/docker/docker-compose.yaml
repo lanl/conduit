@@ -96,8 +96,6 @@ services:
         - ALPINE=3.22
     container_name: conduit-server
     hostname: conduit-server.example.com
-    ports:
-      - "6060:6060"
     depends_on:
       kdc:
         condition: service_started
