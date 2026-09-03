@@ -60,7 +60,7 @@ plugins:
   rsync:
     # path to rsync binary
     rsync-path: rsync
-  archive:
+  scoutam:
     # path to stager binary/utility
     stager-path: samnfs
   marchive:

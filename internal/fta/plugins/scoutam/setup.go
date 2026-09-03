@@ -1,6 +1,6 @@
 // Copyright 2026. Triad National Security, LLC. All rights reserved.
 
-package archive
+package scoutam
 
 import (
 	"fmt"
@@ -13,13 +13,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-// Setup for archive - used only when reading data from a Versity/ScoutFSfilesystem. Calls the
+// Setup for scoutam - used only when reading data from a Versity/ScoutFSfilesystem. Calls the
 // archive-stager utility/script to stage all requested files onto the Archive's disk cache. This
 // call waits/hangs until this script completes, which occurs once all requested files are staged
 // to cache.
-func (p *ArchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
-	archiveConfig := &ViperArchivePluginConfig{}
-	err := plugin.GetPluginConfigsFromViper(ArchivePluginKey, archiveConfig)
+func (p *ScoutAMPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
+	archiveConfig := &ViperScoutAMPluginConfig{}
+	err := plugin.GetPluginConfigsFromViper(ScoutAMPluginKey, archiveConfig)
 	if err != nil {
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
@@ -46,7 +46,7 @@ func (p *ArchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathI
 	args := []string{}
 	ds, err := os.Lstat(pathInfo.ResolvedFTAPath)
 	if err != nil {
-		p.log.Errorf("Bad Source path %s passed to Archive Setup: err = %v", pathInfo.OriginalUserPath, err)
+		p.log.Errorf("Bad Source path %s passed to ScoutAM Setup: err = %v", pathInfo.OriginalUserPath, err)
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
 				{
