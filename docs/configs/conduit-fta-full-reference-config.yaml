@@ -1,16 +1,6 @@
-auth:
-  # location of CA Cert used for internal connections to the conduit server API (ex: conduit-runner, conduit-fta, etcd, rqlite use this cert)
-  internal-ca-cert: /etc/conduit/conduit-internal-ca.pem
 transfer:
-  # duration of time to extend the lease expiry after each interval. This is the amount of time it will take for a "lease expiration" to occur during a crash
-  expiry-advance: 5m
   # duration of interval between each lease extension
   expiry-interval: 30s
-# hostname, ip address, and port for the etcd nodes that this conduit instance will attempt to connect to. This will be etcd's `listen-client-urls` value. Hostname is used for mTLS certs
-etcd:
-  - hostname: ""
-    ip: 127.0.0.1
-    port: 2379
 # filesystem plugin configurations
 filesystems:
   # an arbitrary name for the filesystem

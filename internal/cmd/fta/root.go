@@ -254,12 +254,6 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", fmt.Sprintf("config file (default is %s%s.%s)", DefaultConfigLocation, ConfigName, ConfigType))
 	RootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "enable debugging")
 
-	RootCmd.PersistentFlags().String("ca-cert", DefaultCACertLocation, "location of the ca cert .pem file")
-	RootCmd.PersistentFlags().IPSliceVar(&etcdIPs, "etcd-ip", DefaultETCDIPNet, "ip address(es) of etcd")
-	RootCmd.PersistentFlags().IntSliceVar(&etcdPorts, "etcd-port", DefaultETCDPort, "client port(s) of etcd")
-
-	RootCmd.PersistentFlags().BoolP("encoded", "e", false, "Use if stdin is base64 encoded")
-
 	viper.BindPFlag(defaults.ConfigInternalCACertKey, RootCmd.PersistentFlags().Lookup("ca-cert"))
 
 	RootCmd.AddCommand(validateCmd)

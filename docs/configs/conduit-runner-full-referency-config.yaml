@@ -18,6 +18,10 @@ fta:
     - "-d"
   # the path to the conduit-fta binary
   path: conduit-fta
+  # number of times to retry verifying FTA process startup before giving up
+  verify-retry-count: 20
+  # duration to sleep between FTA process startup verification retries. Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"
+  verify-sleep-duration: 5s
 server:
   # list of hostnames that the conduit runner will include in it's server cert. This allows you to use the same cert for multiple conduit runner instances
   hostname:
@@ -27,3 +31,8 @@ server:
     - 127.0.0.1
   # port that the conduit runner will listen on
   port: 23457
+  # directory where unix domain sockets for FTA communication will be created. The runner must have write access to this directory
+  socket-dir: /run/conduit/fta
+transfer:
+  # the duration that conduit will advance the expiry time of a transfer if its determined that it is still running. Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"
+  expiry-advance: 60s
