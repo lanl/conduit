@@ -2843,14 +2843,13 @@ type FTACompleteRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Used by validation to publish the resolved source/destination leases.
-	// Ignored for other scheduler commands.
+	// Used by validation to publish the resolved source/destination leases. Ignored for other scheduler commands.
 	Leases *Leases `protobuf:"bytes,1,opt,name=leases,proto3" json:"leases,omitempty"`
 	// DEST_NONE means there is no destination-info update.
 	DestInfo DestInfo `protobuf:"varint,2,opt,name=destInfo,proto3,enum=conduitapi.DestInfo" json:"destInfo,omitempty"`
-	// JSON-encoded plugin.PluginData. The runner is responsible for any
-	// etcd-specific compression/serialization before persistence.
-	PluginData   []byte           `protobuf:"bytes,3,opt,name=pluginData,proto3,oneof" json:"pluginData,omitempty"`
+	// JSON-brotli-encoded plugin.PluginData
+	PluginData []byte `protobuf:"bytes,3,opt,name=pluginData,proto3,oneof" json:"pluginData,omitempty"`
+	// errors and warnings associated with this transfer
 	PluginErrors *FTAPluginErrors `protobuf:"bytes,4,opt,name=pluginErrors,proto3" json:"pluginErrors,omitempty"`
 }
 
@@ -2921,7 +2920,7 @@ type FTAFailRequest struct {
 
 	// DEST_NONE means there is no destination-info update.
 	DestInfo DestInfo `protobuf:"varint,1,opt,name=destInfo,proto3,enum=conduitapi.DestInfo" json:"destInfo,omitempty"`
-	// JSON-encoded plugin.PluginData.
+	// JSON-brotli-encoded plugin.PluginData
 	PluginData   []byte           `protobuf:"bytes,2,opt,name=pluginData,proto3,oneof" json:"pluginData,omitempty"`
 	PluginErrors *FTAPluginErrors `protobuf:"bytes,3,opt,name=pluginErrors,proto3" json:"pluginErrors,omitempty"`
 }
