@@ -3,7 +3,6 @@
 package api
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/encoding/protojson"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -226,9 +226,9 @@ func (t *TransferDetails) ETCDStatusDetails() *ETCDStatusDetails {
 	return etd
 }
 
-// ETCDStatusDetailsBytes returns a json marshalled version of a transfer's status details to be put in ETCD
-func (t *TransferDetails) ETCDStatusDetailsBytes() ([]byte, error) {
-	return json.Marshal(t.ETCDStatusDetails())
+// EncodeETCDStatusDetails returns a json marshalled version of a transfer's status details to be put in ETCD
+func (t *TransferDetails) EncodeETCDStatusDetails() ([]byte, error) {
+	return protojson.Marshal(t.ETCDStatusDetails())
 }
 
 // ParseETCDTransfersKey returns the transfer id, unescaped path of a lease, and a schdulerCommand from an etcd key

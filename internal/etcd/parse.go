@@ -70,7 +70,7 @@ func ParseETCDTransfer(id uuid.UUID, kvs []*mvccpb.KeyValue, old *proto.Transfer
 		switch {
 		case string(kv.Key) == t.ETCDStatusDetailsKey():
 			esd := &proto.ETCDStatusDetails{}
-			err := json.Unmarshal(kv.Value, esd)
+			err := protojson.Unmarshal(kv.Value, esd)
 			if err != nil {
 				return nil, fmt.Errorf("transfer[%s]: failed to unmarshal status details from etcd into json object: %v [%v]", id, err, string(kv.Value))
 			}
@@ -273,7 +273,7 @@ func ConvertETCDTransfer(t *proto.TransferDetails) ([]clientv3.Op, error) {
 	}
 
 	// create op for transfer status details
-	esd, err := t.ETCDStatusDetailsBytes()
+	esd, err := t.EncodeETCDStatusDetails()
 	if err != nil {
 		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer status details for etcd: %v", t.GetTransferID(), err)
 	}
