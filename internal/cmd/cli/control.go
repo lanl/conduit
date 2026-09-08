@@ -16,6 +16,10 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
+var (
+	serverCmdQueue bool
+)
+
 var serverCmd = &cobra.Command{
 	Use:    "server",
 	Short:  "control the conduit server state",
@@ -139,6 +143,12 @@ var serverStatusCmd = &cobra.Command{
 				EmitUnpopulated: true,
 			}
 
+			if !serverCmdQueue {
+				for _, s := range schedResp.GetSchedulers() {
+					s.Queue = []*proto.SchedulerJob{}
+				}
+			}
+
 			srBytes, err := mo.Marshal(schedResp)
 			if err != nil {
 				fmt.Printf("failed to marshal scheduler info: %v\n", err)
@@ -155,4 +165,6 @@ func init() {
 	serverCmd.AddCommand(serverDrainCmd)
 	serverCmd.AddCommand(serverStartCmd)
 	serverCmd.AddCommand(serverStatusCmd)
+
+	serverStatusCmd.Flags().BoolVar(&serverCmdQueue, "queue", false, "Display the entire scheduler queue")
 }
