@@ -103,7 +103,7 @@ message TransferDetails {
     bool validationOnly = 26;                           // if true the transfer will only run validation and never transfer data
     bytes pluginData = 27;                              // data related to fta plugins
     string pluginStatus = 28;                           // a very basic field for updating the status of the plugin. This is not used in scheduling and is only for additional information for users 
-    uint32 priority = 29;                               // priority for scheduler
+    int64 priority = 29;                               // priority for scheduler
     string action = 30;                                 // user provided action (ex: copy or move)
     map<string, google.protobuf.Any> options = 31;      // options defined by any plugin
     string status = 32;                                 // a very basic field for providing status of a transfer in general. This is not used in scheduling and is only for additional information for users 
@@ -335,12 +335,15 @@ message SchedulerInfoResponse {
 
 message SchedulerStatus {
     map<string, NodeStatus> nodes = 1;
+    int64 queueSize = 2;
+    repeated SchedulerJob queue = 3;
 }
 
 message SchedulerJob {
     SchedulerCommand command = 1;
-    uint32 priority = 2;
+    int64 priority = 2;
     google.protobuf.Timestamp created_time = 3;
+    string jobID = 4; 
 }
 
 // ==== Errant Paths ====

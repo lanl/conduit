@@ -72,7 +72,7 @@ func (tw *TransferWorker) startSchedulerJob(t proto.IncompleteTransfer, command 
 	return proto.Error_ERROR_NONE, nil
 }
 
-func (tw *TransferWorker) getCreatedTimeAndPriority(it proto.IncompleteTransfer) (createdTime *timestamppb.Timestamp, priority uint32, err error) {
+func (tw *TransferWorker) getCreatedTimeAndPriority(it proto.IncompleteTransfer) (createdTime *timestamppb.Timestamp, priority int64, err error) {
 	txnActions := []clientv3.Op{
 		clientv3.OpGet(it.ETCDCreatedTimeKey()),
 		clientv3.OpGet(it.ETCDPriorityKey()),
@@ -110,7 +110,7 @@ func (tw *TransferWorker) getCreatedTimeAndPriority(it proto.IncompleteTransfer)
 			if err != nil {
 				return nil, 0, fmt.Errorf("failed to parse priority: %v", err)
 			}
-			priority = uint32(etcdPriority)
+			priority = int64(etcdPriority)
 		}
 	}
 

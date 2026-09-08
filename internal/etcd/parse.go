@@ -175,7 +175,7 @@ func ParseETCDTransfer(id uuid.UUID, kvs []*mvccpb.KeyValue, old *proto.Transfer
 			if err != nil {
 				return nil, fmt.Errorf("transfer[%s]: failed to parse priority: %v", id, err)
 			}
-			t.Priority = uint32(priority)
+			t.Priority = int64(priority)
 		case string(kv.Key) == t.ETCDExpiryKey():
 			expiryTime, err := time.Parse(time.RFC3339, string(kv.Value))
 			if err != nil {
