@@ -570,9 +570,9 @@ func (s *Scheduler) jobRequest() (keepScheduling bool) {
 			if resp.GetJobsVersion() >= s.nodeInfo[n.Name].LastJobsVersion {
 				newNI := s.nodeInfo[n.Name].Clone()
 				newNI.Jobs = resp.GetJobs()
+				newNI.LastJobsVersion = resp.GetJobsVersion()
 				s.nodeInfo[n.Name] = newNI
 			}
-
 			s.nodeInfoLock.Unlock()
 
 			// do not go on to the other nodes
@@ -733,13 +733,22 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 
 			s.nodeInfoLock.Lock()
 
-			if len(s.nodeInfo[nodeName].Jobs) != len(finalJobs) {
-				s.log.Debugf("Updated job info for node[%s]: %+v vs %+v", nodeName, finalJobs, s.nodeInfo[nodeName].Jobs)
+			node := s.nodeInfo[nodeName]
+
+			// Only update jobs if this response is at least as new as
+			// the jobs information we already have.
+			if res.GetJobsVersion() >= node.LastJobsVersion {
+				if len(node.Jobs) != len(finalJobs) {
+					s.log.Debugf("Updated job info for node[%s]: %+v vs %+v", nodeName, finalJobs, node.Jobs)
+				}
+
+				node.Jobs = finalJobs
+				node.LastJobsVersion = res.GetJobsVersion()
 			}
 
-			// getting the final jobs and available memory from the nodes
-			s.nodeInfo[nodeName].Jobs = finalJobs
-			s.nodeInfo[nodeName].Memory = res.GetAvailableMemory()
+			// Memory is independent of JobsVersion and should always
+			// use the most recent node status message.
+			node.Memory = res.GetAvailableMemory()
 
 			s.nodeInfoLock.Unlock()
 
@@ -755,16 +764,29 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 	}
 }
 
-// sortNodes sorts the memory of the nodes in order of nodes with most memory
+// sortNodes sorts nodes by availability
 func sortNodes(availableNodes []*NodeInfo) ([]*NodeInfo, error) {
 	sort.Slice(availableNodes, func(i, j int) bool {
+		a := availableNodes[i]
+		b := availableNodes[j]
 
-		if len(availableNodes[i].Jobs) == len(availableNodes[j].Jobs) {
-			return availableNodes[i].Memory > availableNodes[j].Memory
-
-		} else {
-			return len(availableNodes[i].Jobs) < len(availableNodes[j].Jobs)
+		// Prefer nodes with fewer currently running jobs.
+		if len(a.Jobs) != len(b.Jobs) {
+			return len(a.Jobs) < len(b.Jobs)
 		}
+
+		// Prefer the node that has had fewer job updates.
+		if a.LastJobsVersion != b.LastJobsVersion {
+			return a.LastJobsVersion < b.LastJobsVersion
+		}
+
+		// Prefer more available memory.
+		if a.Memory != b.Memory {
+			return a.Memory > b.Memory
+		}
+
+		// Deterministic final tie breaker.
+		return a.Name < b.Name
 	})
 
 	return availableNodes, nil
@@ -802,6 +824,35 @@ func (s *Scheduler) GetNodeInfo() map[string]*NodeInfo {
 	defer s.nodeInfoLock.RUnlock()
 
 	return maps.Clone(s.nodeInfo)
+}
+
+// GetQueue returns a snapshot of the scheduler queue in priority order.
+func (s *Scheduler) GetQueue() []*proto.SchedulerJob {
+	s.PriorityLock.RLock()
+
+	queue := make([]Job, len(*s.priorityQueue))
+	retQueue := make([]*proto.SchedulerJob, len(*s.priorityQueue))
+
+	for i, job := range *s.priorityQueue {
+		queue[i] = *job
+	}
+
+	s.PriorityLock.RUnlock()
+
+	sort.Slice(queue, func(i, j int) bool {
+		return jobLess(&queue[i], &queue[j])
+	})
+
+	for i, job := range queue {
+		retQueue[i] = &proto.SchedulerJob{
+			JobID:       job.JobID.String(),
+			Priority:    job.Priority,
+			Command:     job.SchedulerCommand,
+			CreatedTime: timestamppb.New(job.CreatedTime),
+		}
+	}
+
+	return retQueue
 }
 
 func (s *Scheduler) GetSchedulerID() uuid.UUID {
