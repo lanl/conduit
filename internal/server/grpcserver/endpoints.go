@@ -864,16 +864,21 @@ func (s *ConduitServer) SchedulerInfo(ctx context.Context, _ *emptypb.Empty) (*p
 
 	schedulers := make(map[string]*proto.SchedulerStatus)
 
-	for _, schduler := range s.schdulers {
+	for _, scheduler := range s.schdulers {
 		schedulerStatus := &proto.SchedulerStatus{
 			Nodes: make(map[string]*proto.NodeStatus),
 		}
 
-		nodes := schduler.GetNodeInfo()
+		queue := scheduler.GetQueue()
+		schedulerStatus.Queue = queue
+		schedulerStatus.QueueSize = int64(len(queue))
+
+		nodes := scheduler.GetNodeInfo()
 		for _, node := range nodes {
 			nodeStatus := &proto.NodeStatus{
 				Jobs:            make(map[string]*proto.JobInfo),
 				AvailableMemory: node.Memory,
+				JobsVersion:     node.LastJobsVersion,
 			}
 
 			for transferID, jobInfo := range node.Jobs {
@@ -882,7 +887,8 @@ func (s *ConduitServer) SchedulerInfo(ctx context.Context, _ *emptypb.Empty) (*p
 
 			schedulerStatus.Nodes[node.Name] = nodeStatus
 		}
-		schedulers[schduler.GetSchedulerID().String()] = schedulerStatus
+
+		schedulers[scheduler.GetSchedulerID().String()] = schedulerStatus
 	}
 
 	return &proto.SchedulerInfoResponse{Schedulers: schedulers}, nil
