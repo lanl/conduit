@@ -15,7 +15,7 @@ import (
 
 type Job struct {
 	JobID            uuid.UUID // value of the item (111-111-111)
-	Priority         uint32    // priority of item in queue (= 1)
+	Priority         int64     // priority of item in queue
 	SchedulerCommand proto.SchedulerCommand
 	Index            int // index of the item in the heap
 	CreatedTime      time.Time
@@ -48,8 +48,10 @@ func jobLess(a, b *Job) bool {
 		return false
 	case a.CreatedTime.Before(b.CreatedTime):
 		return true
-	default:
+	case b.CreatedTime.Before(a.CreatedTime):
 		return false
+	default:
+		return a.JobID.String() < b.JobID.String()
 	}
 
 }
@@ -81,7 +83,15 @@ func (pq *PriorityQueue) Pop() any {
 	return item
 }
 
-func (pq *PriorityQueue) AddJob(jobID uuid.UUID, schedulerCommand proto.SchedulerCommand, createdTime time.Time, priority uint32, em *etcd.ETCDManager) {
+func (pq *PriorityQueue) AddJob(jobID uuid.UUID, schedulerCommand proto.SchedulerCommand, createdTime time.Time, priority int64, em *etcd.ETCDManager) {
+	// check for an already existing job in the queue
+	for _, existing := range *pq {
+		if existing.JobID == jobID &&
+			existing.SchedulerCommand == schedulerCommand {
+			return
+		}
+	}
+
 	// create stop context here
 	updateExpiryStopCtx, updateExpiryCancel := context.WithCancel(context.Background())
 
@@ -128,13 +138,16 @@ func (pq *PriorityQueue) PopJob() (*Job, error) {
 func (pq *PriorityQueue) RemoveJob(id uuid.UUID) (newQueue *PriorityQueue) {
 	queue := *pq
 
-	for i := 0; i < len(queue); i++ {
+	for i := 0; i < len(queue); {
 		if queue[i].JobID == id {
 			// stop updating the expiry for the transfer
 			queue[i].StopCtx()
 
 			queue = append(queue[:i], queue[i+1:]...)
+			continue
 		}
+
+		i++
 	}
 
 	heap.Init(&queue)
