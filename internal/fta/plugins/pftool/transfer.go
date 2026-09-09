@@ -84,8 +84,8 @@ func (p *PftoolPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginD
 
 	cmdContext, cmdCancel := context.WithCancelCause(context.Background())
 
-	pftoolConfig := &ViperPftoolPluginConfig{}
-	err = plugin.GetPluginConfigsFromViper(PftoolPluginKey, pftoolConfig)
+	pftoolConfig := p.GetDefaultConfig().(ViperPftoolPluginConfig)
+	err = plugin.GetPluginConfigsFromViper(PftoolPluginKey, &pftoolConfig)
 	if err != nil {
 		cmdCancel(fmt.Errorf("failed to get pftool config: %v", err))
 		return plugin.PluginErrors{

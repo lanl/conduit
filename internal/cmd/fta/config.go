@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -114,15 +115,12 @@ func createDefaultConfig() {
 	viper.SetDefault(defaults.ConfigExpiryIntervalKey, DefaultExpiryUpdateInterval)
 	viper.SetDefault(defaults.ConfigExpiryAdvanceKey, DefaultExpiryAdvance)
 
-	pluginConfs := map[string]any{}
-	for pluginKey, plugin := range fta.PluginMap {
-		pluginConfig := plugin.GetDefaultConfig()
+	for pluginKey, p := range fta.PluginMap {
+		pluginConfig := p.GetDefaultConfig()
 		if pluginConfig != nil {
-			pluginConfs[pluginKey] = pluginConfig
+			setViperLeafDefaults(fmt.Sprintf("%s.%s", defaults.ConfigPluginsKey, pluginKey), pluginConfig)
 		}
 	}
-
-	viper.SetDefault(defaults.ConfigPluginsKey, pluginConfs)
 
 	viper.SetDefault(defaults.ConfigFTAVerifyRetryCountKey, DefaultVerifyRetryCount)
 	viper.SetDefault(defaults.ConfigFTAVerifySleepDurationKey, DefaultVerifySleepDuration)
@@ -153,5 +151,67 @@ func createDefaultConfig() {
 		logrus.Warnf("failed to write default config: %v", err)
 	} else {
 		logrus.Infof("wrote default config to: %v", finalConfigPath)
+	}
+}
+
+func setViperLeafDefaults(prefix string, config any) {
+	setViperLeafDefaultsValue(prefix, reflect.ValueOf(config))
+}
+
+func setViperLeafDefaultsValue(prefix string, v reflect.Value) {
+	// Dereference pointers/interfaces
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return
+		}
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		t := v.Type()
+
+		for i := 0; i < v.NumField(); i++ {
+			field := t.Field(i)
+
+			// Ignore unexported fields
+			if !field.IsExported() {
+				continue
+			}
+
+			key := field.Tag.Get("mapstructure")
+			if key == "-" {
+				continue
+			}
+
+			if key == "" {
+				key = strings.ToLower(field.Name)
+			}
+
+			// Strip options such as ",omitempty"
+			if idx := strings.IndexByte(key, ','); idx >= 0 {
+				key = key[:idx]
+			}
+
+			setViperLeafDefaultsValue(prefix+"."+key, v.Field(i))
+		}
+
+	case reflect.Map:
+		iter := v.MapRange()
+		for iter.Next() {
+			k := iter.Key()
+			value := iter.Value()
+
+			// Your config maps are string-keyed
+			if k.Kind() != reflect.String {
+				continue
+			}
+
+			setViperLeafDefaultsValue(prefix+"."+k.String(), value)
+		}
+
+	default:
+		// Scalars, slices, etc. are leaves.
+		viper.SetDefault(prefix, v.Interface())
 	}
 }

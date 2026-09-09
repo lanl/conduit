@@ -18,20 +18,20 @@ import (
 // call waits/hangs until this script completes, which occurs once all requested files are staged
 // to cache.
 func (p *ScoutAMPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
-	archiveConfig := &ViperScoutAMPluginConfig{}
-	err := plugin.GetPluginConfigsFromViper(ScoutAMPluginKey, archiveConfig)
+	scoutAMConfig := p.GetDefaultConfig().(ViperScoutAMPluginConfig)
+	err := plugin.GetPluginConfigsFromViper(ScoutAMPluginKey, &scoutAMConfig)
 	if err != nil {
 		return plugin.PluginErrors{
 			Errors: []*plugin.FTAPathError{
 				{
 					LeasePath:  "",
 					PErr:       proto.Error_ERROR_INVALID_CONDUIT_CONFIG,
-					ErrMessage: fmt.Errorf("failed to get archive config: %v", err),
+					ErrMessage: fmt.Errorf("failed to get ScoutAM config: %v", err),
 				},
 			},
 		}, nil
 	}
-	scriptRelPath := archiveConfig.StagerPath // Ensure this script exists and is executable
+	scriptRelPath := scoutAMConfig.StagerPath // Ensure this script exists and is executable
 
 	// pathInfo.TransferPath tells the transfer plugin what final path to use for its transfer
 	pathInfo.TransferPath = pathInfo.ResolvedFTAPath
