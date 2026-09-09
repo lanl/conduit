@@ -66,6 +66,10 @@ func (p *PftoolPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.Tra
 }
 
 func (p *PftoolPlugin) GetDefaultConfig() any {
+	return DefaultPftoolPluginConfig()
+}
+
+func DefaultPftoolPluginConfig() ViperPftoolPluginConfig {
 	return ViperPftoolPluginConfig{
 		PfcpPath:     DefaultPFCPLocation,
 		PfcpArgs:     DefaultPFCPArguments(),

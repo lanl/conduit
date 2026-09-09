@@ -14,7 +14,7 @@ import (
 )
 
 func (p *MarchivePlugin) Teardown(transferID uuid.UUID, transferDetails *proto.TransferDetails, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) plugin.PluginErrors {
-	marchiveConfig := p.GetDefaultConfig().(ViperMarchivePluginConfig)
+	marchiveConfig := DefaultMarchivePluginConfig()
 	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, &marchiveConfig)
 	if err != nil {
 		return plugin.PluginErrors{

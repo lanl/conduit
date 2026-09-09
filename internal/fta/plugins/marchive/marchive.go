@@ -59,6 +59,11 @@ func (p *MarchivePlugin) Transfer(transferID uuid.UUID, pluginData *plugin.Plugi
 }
 
 func (p *MarchivePlugin) GetDefaultConfig() any {
+	return DefaultMarchivePluginConfig()
+
+}
+
+func DefaultMarchivePluginConfig() ViperMarchivePluginConfig {
 	return ViperMarchivePluginConfig{
 		ObjlistPath:   DefaultMarchiveObjectList,
 		TmrequestPath: DefaultMarchiveTMRequest,

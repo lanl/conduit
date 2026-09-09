@@ -84,7 +84,7 @@ func (p *RsyncPlugin) Transfer(transferID uuid.UUID, pluginData *plugin.PluginDa
 	realSize := len(argTest) + int(unsafe.Sizeof(argTest))
 	p.log.Debugf("real size of args: %d", realSize)
 
-	rsyncConfig := p.GetDefaultConfig().(ViperRsyncPluginConfig)
+	rsyncConfig := DefaultRsyncPluginConfig()
 	err := plugin.GetPluginConfigsFromViper(RsyncPluginKey, &rsyncConfig)
 	if err != nil {
 		return plugin.PluginErrors{

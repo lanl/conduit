@@ -59,6 +59,10 @@ func (p *RsyncPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.Tran
 }
 
 func (p *RsyncPlugin) GetDefaultConfig() any {
+	return DefaultRsyncPluginConfig()
+}
+
+func DefaultRsyncPluginConfig() ViperRsyncPluginConfig {
 	return ViperRsyncPluginConfig{
 		RsyncPath: DefaultRsyncLocation,
 	}

@@ -12,7 +12,7 @@ import (
 
 const (
 	ScoutAMPluginKey     = "scoutam"
-	DefaultArchiveStager = "samnfs"
+	DefaultScoutAMStager = "samnfs"
 )
 
 var _ plugin.ConduitFTAPlugin = (*ScoutAMPlugin)(nil)
@@ -61,7 +61,11 @@ func (p *ScoutAMPlugin) Teardown(transferID uuid.UUID, transferDetails *proto.Tr
 }
 
 func (p *ScoutAMPlugin) GetDefaultConfig() any {
+	return DefaultScoutAMPluginConfig()
+}
+
+func DefaultScoutAMPluginConfig() ViperScoutAMPluginConfig {
 	return ViperScoutAMPluginConfig{
-		StagerPath: DefaultArchiveStager,
+		StagerPath: DefaultScoutAMStager,
 	}
 }

@@ -18,7 +18,7 @@ import (
 // call waits/hangs until this script completes, which occurs once all requested files are staged
 // to cache.
 func (p *ScoutAMPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (plugin.PluginErrors, *plugin.PluginPathInfo) {
-	scoutAMConfig := p.GetDefaultConfig().(ViperScoutAMPluginConfig)
+	scoutAMConfig := DefaultScoutAMPluginConfig()
 	err := plugin.GetPluginConfigsFromViper(ScoutAMPluginKey, &scoutAMConfig)
 	if err != nil {
 		return plugin.PluginErrors{
