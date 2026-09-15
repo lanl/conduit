@@ -3,6 +3,7 @@
 package ftacmd
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
