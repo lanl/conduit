@@ -18,8 +18,8 @@ import (
 // waits/hangs until this script completes, which occurs after the Tape Manager has completed all
 // READ jobs.
 func (p *MarchivePlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (*proto.FTAPluginErrors, *plugin.PluginPathInfo) {
-	marchiveConfig := &ViperMarchivePluginConfig{}
-	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, marchiveConfig)
+	marchiveConfig := DefaultMarchivePluginConfig()
+	err := plugin.GetPluginConfigsFromViper(MarchivePluginKey, &marchiveConfig)
 	if err != nil {
 		return &proto.FTAPluginErrors{
 			Errors: []*proto.FTAPathError{
