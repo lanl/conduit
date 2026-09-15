@@ -173,7 +173,7 @@ func (f *FtaApi) Start(ctx context.Context, _ *emptypb.Empty) (*api.FTAStartResp
 		return &api.FTAStartResponse{
 			Error:        api.Error_ERROR_CONDUIT_INTERNAL,
 			ErrorMessage: rErr.Error(),
-		}, rErr
+		}, nil
 	}
 
 	txnCompare := []clientv3.Cmp{
@@ -199,7 +199,7 @@ func (f *FtaApi) Start(ctx context.Context, _ *emptypb.Empty) (*api.FTAStartResp
 		return &api.FTAStartResponse{
 			Error:        api.Error_ERROR_ETCD_CONNECTION,
 			ErrorMessage: rErr.Error(),
-		}, rErr
+		}, nil
 	}
 
 	// if everything got added to etcd, return
@@ -225,7 +225,7 @@ func (f *FtaApi) Start(ctx context.Context, _ *emptypb.Empty) (*api.FTAStartResp
 	}
 
 	rErr := fmt.Errorf("setting plugin start state in etcd was unsuccessful:[state=%v,error=%s,errMessage=%v]", state, pErr, errMessage)
-	return &api.FTAStartResponse{Error: api.Error_ERROR_CONDUIT_INTERNAL, ErrorMessage: rErr.Error()}, rErr
+	return &api.FTAStartResponse{Error: api.Error_ERROR_CONDUIT_INTERNAL, ErrorMessage: rErr.Error()}, nil
 }
 
 // CompletePluginETCD sets the related keys in etcd to signal that the plugin has ended on the FTA node
@@ -248,7 +248,7 @@ func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*ap
 		return &api.FTACompleteResponse{
 			Error:        api.Error_ERROR_CONDUIT_INTERNAL,
 			ErrorMessage: rErr.Error(),
-		}, rErr
+		}, nil
 	}
 
 	// try to set the plugin to complete
@@ -272,7 +272,7 @@ func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*ap
 				return &api.FTACompleteResponse{
 					Error:        api.Error_ERROR_CONDUIT_INTERNAL,
 					ErrorMessage: rErr.Error(),
-				}, rErr
+				}, nil
 			}
 
 			for _, s := range pluginData.SourcePluginInfo {
@@ -293,7 +293,7 @@ func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*ap
 			return &api.FTACompleteResponse{
 				Error:        api.Error_ERROR_CONDUIT_INTERNAL,
 				ErrorMessage: rErr.Error(),
-			}, rErr
+			}, nil
 
 			// log.Error(tErr)
 			// transferError = tErr
@@ -314,7 +314,7 @@ func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*ap
 				return &api.FTACompleteResponse{
 					Error:        api.Error_ERROR_CONDUIT_INTERNAL,
 					ErrorMessage: rErr.Error(),
-				}, rErr
+				}, nil
 			}
 
 			txnActions = append(txnActions, clientv3.OpPut(it.ETCDWarningsKey(), string(warningsJson)))
@@ -343,14 +343,14 @@ func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*ap
 		return &api.FTACompleteResponse{
 			Error:        api.Error_ERROR_ETCD_CONNECTION,
 			ErrorMessage: rErr.Error(),
-		}, rErr
+		}, nil
 	}
 	if !resp.Succeeded {
 		rErr := fmt.Errorf("setting plugin complete state in etcd was unsuccessful")
 		return &api.FTACompleteResponse{
 			Error:        api.Error_ERROR_ETCD_INTERNAL,
 			ErrorMessage: rErr.Error(),
-		}, rErr
+		}, nil
 
 	}
 

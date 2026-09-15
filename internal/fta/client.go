@@ -63,6 +63,10 @@ func (c *FTAClient) StartPlugin(ctx context.Context) (_ proto.Error, _ error) {
 
 	resp, err := c.api.Start(ctx, &emptypb.Empty{})
 	if err != nil {
+		return api.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("failed to start plugin: %v", err)
+	}
+
+	if resp.GetError() != api.Error_ERROR_NONE || resp.GetErrorMessage() != "" {
 		return resp.GetError(), errors.New(resp.GetErrorMessage())
 	}
 
@@ -108,6 +112,10 @@ func (c *FTAClient) CompletePlugin(ctx context.Context, command proto.SchedulerC
 		PluginErrors: pluginErrors,
 	})
 	if err != nil {
+		return api.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("failed to complete plugin: %v", err)
+	}
+
+	if resp.GetError() != api.Error_ERROR_NONE || resp.GetErrorMessage() != "" {
 		return resp.GetError(), errors.New(resp.GetErrorMessage())
 	}
 

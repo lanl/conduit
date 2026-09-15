@@ -38,19 +38,24 @@ func updateTransferExpiry(ctx context.Context, client *FTAClient) {
 func handleExpiryResponse(resp *proto.FTAHeartbeatResponse, err error) {
 	if err != nil {
 		logrus.Errorf("error committing updated expiry to etcd: %v", err)
-	} else if resp != nil {
-		if resp.GetTransferError() == proto.Error_ERROR_ABORTED {
-			logrus.Fatal("The Transfer was aborted, stopping...")
-		}
-
-		if resp.GetTransferError() != proto.Error_ERROR_NONE {
-			logrus.Fatalf("The Transfer is in an error state[%s], stopping...", resp.GetTransferError())
-		}
-
-		if !resp.Successful {
-			logrus.Fatalf("updating the transfer expiry was unsuccessful")
-		}
+		return
+	}
+	if resp == nil {
+		logrus.Error("heartbeat returned nil response")
+		return
 	}
 
-	logrus.Debugf("successfully updated expiry: %s", resp.NewExpiry.AsTime().Format(time.RFC3339))
+	if resp.GetTransferError() == proto.Error_ERROR_ABORTED {
+		logrus.Fatal("The Transfer was aborted, stopping...")
+	}
+	if resp.GetTransferError() != proto.Error_ERROR_NONE {
+		logrus.Fatalf("The Transfer is in an error state[%s], stopping...", resp.GetTransferError())
+	}
+	if !resp.GetSuccessful() {
+		logrus.Fatal("updating the transfer expiry was unsuccessful")
+	}
+
+	if resp.GetNewExpiry() != nil {
+		logrus.Debugf("successfully updated expiry: %s", resp.GetNewExpiry().AsTime().Format(time.RFC3339))
+	}
 }
