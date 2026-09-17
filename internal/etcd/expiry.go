@@ -99,14 +99,10 @@ func (em *ETCDManager) updateExpiriesOnce(its map[string]map[uuid.UUID]proto.Inc
 		txn, cancel := em.Txn()
 		txn.Then(opsChunks[ci]...)
 
-		resp, err := txn.Commit()
+		_, err := txn.Commit()
 		cancel()
 		if err != nil {
-			return false, fmt.Errorf("failed to update expiries in etcd for transfers[%v]: %s ", len(its), err), newExpiry
-		}
-
-		if !resp.Succeeded {
-			return resp.Succeeded, err, newExpiry
+			return false, fmt.Errorf("failed to update expiries in etcd for transfers[%v]: %w ", len(its), err), newExpiry
 		}
 	}
 
