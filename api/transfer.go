@@ -242,6 +242,10 @@ func ParseETCDTransfersKey(etcdKey string) (id uuid.UUID, schdulerCommand Schedu
 	// match 2: schedulerNodes map command (TEARDOWN)
 	matches := etcdTransferKeyRegex.FindStringSubmatch(etcdKey)
 
+	if matches == nil {
+		return uuid.Nil, SchedulerCommand_NONE, fmt.Errorf("no matches for[%v]: %v", etcdKey, err)
+	}
+
 	// check if transferID exists
 	if matches[1] != "" {
 		// get transfer id
@@ -250,7 +254,7 @@ func ParseETCDTransfersKey(etcdKey string) (id uuid.UUID, schdulerCommand Schedu
 			return uuid.Nil, SchedulerCommand_NONE, fmt.Errorf("failed to parse transfer id from key[%v]: %v", etcdKey, err)
 		}
 	} else {
-		return uuid.Nil, SchedulerCommand_NONE, fmt.Errorf("no transferID found in key[%v]: %v", etcdKey, err)
+		return uuid.Nil, SchedulerCommand_NONE, fmt.Errorf("no transferID found in key[%v]", etcdKey)
 	}
 
 	// check if schedulerNodes command exists
@@ -262,7 +266,7 @@ func ParseETCDTransfersKey(etcdKey string) (id uuid.UUID, schdulerCommand Schedu
 		schdulerCommand = SchedulerCommand(sc)
 	}
 
-	return id, schdulerCommand, err
+	return id, schdulerCommand, nil
 }
 
 // ParseETCDErrorsKey returns the user and unescaped trash path from an etcd key
