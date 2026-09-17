@@ -43,7 +43,7 @@ type Archiver struct {
 	rm  *rqlite.RqliteManager
 	cm  *cert.CertManager
 
-	jobs   map[uuid.UUID]bool // the jobs map is only used for stopping and keeps track of the events that the watchdog is actively handling
+	jobs   map[uuid.UUID]bool // the jobs map is only used for stopping and keeps track of the events that the archiver is actively handling
 	jMutex sync.RWMutex
 
 	stopWatch context.CancelFunc
