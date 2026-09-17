@@ -645,44 +645,53 @@ func (s *Scheduler) schedulerLoop(ctx context.Context) {
 
 // nodeMonitor monitors the nodes in the map
 func (s *Scheduler) nodeMonitor() {
-
 	s.nodeInfoLock.RLock()
 	defer s.nodeInfoLock.RUnlock()
 
 	for i, n := range s.nodeInfo {
-
 		go func(ni *NodeInfo, nodeName string) {
+			nodeDown := false
 
 			for {
-				err := s.connectToNode(ni, nodeName)
+				wasConnected, err := s.connectToNode(ni, nodeName)
 				if err != nil {
-					s.log.Errorf("failed to connect to node[%v]: %v", ni.Name, err)
+					// Log the first failure, or a new failure after the
+					// node successfully reconnected.
+					if !nodeDown || wasConnected {
+						s.log.Errorf("failed to connect to node[%v]: %v", ni.Name, err)
+					}
+
+					nodeDown = true
 				}
+
 				time.Sleep(5 * time.Second)
 			}
 		}(n, i)
 	}
 }
 
-func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
+func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) (wasConnected bool, _ error) {
 	// Base context for the RPC
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	s.nodeInfoLock.RLock()
-	// listens for updates on stream regarding the current status of the nodes
+	// listens for updates on stream regarding the current status of the node
 	stream, err := ni.client.GetNodeStatusStream(ctx, &emptypb.Empty{}, grpc.WaitForReady(true))
 	s.nodeInfoLock.RUnlock()
 
 	if err != nil {
-		return fmt.Errorf("failed to get node status stream: %v", err)
+		return false, fmt.Errorf("failed to get node status stream: %v", err)
 	}
 
-	// Channels to get messages / errors from a single Recv goroutine.
+	// Tracks whether this connection attempt ever successfully received a node status message
+	wasConnected = false
+
+	// Channels to get messages / errors from a single Recv goroutine
 	msgCh := make(chan *proto.NodeStatus)
 	errCh := make(chan error, 1)
 
-	// Goroutine that blocks on Recv and forwards results into channels.
+	// Goroutine that blocks on Recv and forwards results into channels
 	go func() {
 		for {
 			msg, err := stream.Recv()
@@ -702,15 +711,12 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 	for {
 		select {
 		case <-ctx.Done():
-			// Context cancelled (could be from outside or our own cancel)
-			s.log.Error("node[%v] stream context cancelled", ni.Name)
-
 			// error from the node stream,set available memory to zero, wait 5 seconds, then try reconnecting
 			s.nodeInfoLock.Lock()
 			s.nodeInfo[nodeName].Memory = 0
 			s.nodeInfoLock.Unlock()
 
-			return ctx.Err()
+			return wasConnected, ctx.Err()
 
 		case err := <-errCh:
 			// Error or EOF from Recv
@@ -725,10 +731,15 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 			s.nodeInfo[nodeName].Memory = 0
 			s.nodeInfoLock.Unlock()
 
-			return fmt.Errorf("recieved error from node[%v] stream: %v", ni.Name, err)
+			if err == io.EOF {
+				return wasConnected, fmt.Errorf("node[%v] stream closed by server", ni.Name)
+			}
+
+			return wasConnected, fmt.Errorf("received error from node[%v] stream: %v", ni.Name, err)
 
 		case res := <-msgCh:
-			// Safely reset timer:
+			wasConnected = true
+
 			if !timer.Stop() {
 				// Drain timer channel if it already fired
 				select {
@@ -743,8 +754,7 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 
 			node := s.nodeInfo[nodeName]
 
-			// Only update jobs if this response is at least as new as
-			// the jobs information we already have.
+			// Only update jobs if this response is at least as new as the jobs information we already have
 			if res.GetJobsVersion() >= node.LastJobsVersion {
 				if len(node.Jobs) != len(finalJobs) {
 					s.log.Debugf("Updated job info for node[%s]: %+v vs %+v", nodeName, finalJobs, node.Jobs)
@@ -754,8 +764,7 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 				node.LastJobsVersion = res.GetJobsVersion()
 			}
 
-			// Memory is independent of JobsVersion and should always
-			// use the most recent node status message.
+			// Memory is independent of JobsVersion and should always use the most recent node status message.
 			node.Memory = res.GetAvailableMemory()
 
 			s.nodeInfoLock.Unlock()
@@ -767,7 +776,12 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) error {
 		case <-timer.C:
 			// No messages for idleTimeout
 			cancel() // stop the Recv goroutine by cancelling the RPC
-			return fmt.Errorf("no messages received for %s", idleTimeout)
+
+			s.nodeInfoLock.Lock()
+			s.nodeInfo[nodeName].Memory = 0
+			s.nodeInfoLock.Unlock()
+
+			return wasConnected, fmt.Errorf("no messages received for %s", idleTimeout)
 		}
 	}
 }
