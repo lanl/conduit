@@ -298,15 +298,37 @@ func (a *Archiver) compactETCD() error {
 		return fmt.Errorf("failed to get oldest revision from etcd: %v", err)
 	}
 
-	newCurrRev, err := a.em.CompactRevision(oldestKV.CreateRevision)
+	// If there are no live Conduit keys, everything through the current
+	// revision is safe to compact.
+	targetRev := currRev
+	targetKey := "<none>"
+
+	if oldestKV != nil {
+		targetRev = oldestKV.CreateRevision
+		targetKey = string(oldestKV.Key)
+	}
+
+	if targetRev <= 0 {
+		return nil
+	}
+
+	newCurrRev, err := a.em.CompactRevision(targetRev)
 	if newCurrRev != -1 {
 		currRev = newCurrRev
 	}
+
 	if err != nil {
-		return fmt.Errorf("failed to compact to oldest safe revision[%v] current[%v] key[%v]: %v", oldestKV.CreateRevision, currRev, string(oldestKV.Key), err)
+		// Already compacted through this revision is effectively success.
+		if err.Error() == etcd.ErrRevCompacted {
+			a.log.Debugf("etcd already compacted through revision[%d]", targetRev)
+			return nil
+		}
+
+		return fmt.Errorf("failed to compact to safe revision[%v] current[%v] key[%v]: %v", targetRev, currRev, targetKey, err)
 	}
 
-	a.log.Infof("successfully compacted etcd to revision: %v. current revision: %v", oldestKV.CreateRevision, currRev)
+	a.log.Infof("successfully compacted etcd to revision: %v. current revision: %v", targetRev, currRev)
+
 	return nil
 }
 
