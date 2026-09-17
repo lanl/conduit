@@ -1105,56 +1105,47 @@ func (em *ETCDManager) GetOldestRev(prefix string) (int64, error) {
 
 func (em *ETCDManager) GetOldestTransfersRev() (oldestKV *mvccpb.KeyValue, currentRev int64, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), defaults.DefaultETCDTimeout)
+	defer cancel()
+
+	opts := []clientv3.OpOption{
+		clientv3.WithPrefix(),
+		clientv3.WithLimit(1),
+		clientv3.WithSort(clientv3.SortByCreateRevision, clientv3.SortAscend),
+	}
+
 	em.cmutex.RLock()
-	// when keys are sorted Lexicographically, the jobs prefix will come after the errors prefix. We're trying to get the oldest revision that's not in the errors prefix
-	resp, err := em.client.Get(ctx, proto.JobsPrefix, clientv3.WithFromKey(), clientv3.WithLimit(1), clientv3.WithSort(clientv3.SortByCreateRevision, clientv3.SortAscend))
+	resp, err := em.client.Txn(ctx).Then(
+		clientv3.OpGet(proto.JobsPrefix, opts...),
+		clientv3.OpGet(proto.LeasePrefix, opts...),
+		clientv3.OpGet(proto.TransferPrefix, opts...),
+	).Commit()
 	em.cmutex.RUnlock()
-	cancel()
+
 	if err != nil {
 		return nil, 0, err
 	}
-	if len(resp.Kvs) < 1 {
-		// etcd is empty
-		// compact to the most recent revision
-		return &mvccpb.KeyValue{
-			CreateRevision: resp.Header.GetRevision(),
-		}, resp.Header.GetRevision(), nil
-	}
-	em.log.Debugf("got oldest transfer rev of %v for key: [%v] value: [%v]", resp.Kvs[0].CreateRevision, string(resp.Kvs[0].Key), string(resp.Kvs[0].Value))
-	return resp.Kvs[0], resp.Header.GetRevision(), err
-}
 
-func (em *ETCDManager) GetModifiedKeysAtRev(rev int64) (events []*clientv3.Event, err error) {
-	wc, cancel := em.GetWatchChannelRev("\x00", rev)
-	defer cancel()
+	currentRev = resp.Header.GetRevision()
 
-	for resp := range wc {
-		if err := resp.Err(); err != nil {
-			return nil, fmt.Errorf("receieved error from watch channel: %v", err)
-		}
-
-		if len(resp.Events) == 0 {
+	for _, opResp := range resp.Responses {
+		rangeResp := opResp.GetResponseRange()
+		if rangeResp == nil || len(rangeResp.Kvs) == 0 {
 			continue
 		}
 
-		pastTarget := false
-
-		for _, ev := range resp.Events {
-			switch {
-			case ev.Kv.ModRevision == rev:
-				events = append(events, ev)
-
-			case ev.Kv.ModRevision > rev:
-				pastTarget = true
-			}
-		}
-
-		if len(events) > 0 || pastTarget {
-			return events, nil
+		kv := rangeResp.Kvs[0]
+		if oldestKV == nil || kv.CreateRevision < oldestKV.CreateRevision {
+			oldestKV = kv
 		}
 	}
 
-	return nil, fmt.Errorf("watch channel closed")
+	if oldestKV == nil {
+		return nil, currentRev, nil
+	}
+
+	em.log.Debugf("got oldest conduit revision[%d] current[%d] key[%s]", oldestKV.CreateRevision, currentRev, string(oldestKV.Key))
+
+	return oldestKV, currentRev, nil
 }
 
 // GetDestInfo will get the transfer destination info from etcd
