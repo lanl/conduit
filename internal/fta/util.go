@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -16,6 +18,10 @@ import (
 	"github.com/lanl/conduit/internal/logger"
 	"github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
+)
+
+const (
+	globChars = "*?["
 )
 
 // ListenForKill will listen for a os kill signal (typically coming from the scheduler) and attempt to record the event in etcd
@@ -344,4 +350,76 @@ func removeDuplicates[T comparable](sliceList []T) []T {
 		}
 	}
 	return list
+}
+
+func globSource(transferID uuid.UUID, log *logger.ConduitLogger, source string, fscs map[string]*plugin.FileSystemConfig) ([]string, *plugin.FTAPathError) {
+	// No glob characters, nothing to do.
+	if !strings.ContainsAny(source, globChars) {
+		return []string{source}, nil
+	}
+
+	// Walk backwards until we find the portion of the path that
+	// contains no glob characters.
+	globRoot := source
+	for strings.ContainsAny(globRoot, globChars) {
+		parent := filepath.Dir(globRoot)
+		if parent == globRoot {
+			break
+		}
+		globRoot = parent
+	}
+
+	// Resolve the non-glob portion normally. This applies the
+	// user -> FTA mapping and resolves any symlinks in the prefix.
+	rootPlugin, pathErr := getPathValidationPlugin(transferID, log, globRoot, globRoot, fscs, proto.LeaseType_SOURCE)
+	if pathErr != nil {
+		return []string{source}, pathErr
+	}
+
+	// Get the portion containing the glob.
+	relativePattern, err := filepath.Rel(globRoot, source)
+	if err != nil {
+		return []string{source}, &plugin.FTAPathError{
+			LeasePath:  source,
+			PErr:       proto.Error_ERROR_INVALID_INPUT,
+			ErrMessage: fmt.Errorf("failed to get relative glob path for source[%v]: %v", source, err),
+		}
+	}
+
+	// Perform the glob against the actual FTA filesystem.
+	ftaPattern := filepath.Join(rootPlugin.ResolvedFTAPath, relativePattern)
+
+	matches, err := filepath.Glob(ftaPattern)
+	if err != nil {
+		return []string{source}, &plugin.FTAPathError{
+			LeasePath:  source,
+			PErr:       proto.Error_ERROR_INVALID_INPUT,
+			ErrMessage: fmt.Errorf("failed to glob source[%v]: %v", source, err),
+		}
+	}
+
+	if len(matches) == 0 {
+		return []string{source}, nil
+	}
+
+	// Translate each FTA match back into the corresponding user path.
+	globbedSources := make([]string, 0, len(matches))
+
+	for _, match := range matches {
+		relativeMatch, err := filepath.Rel(rootPlugin.ResolvedFTAPath, match)
+		if err != nil {
+			return []string{source}, &plugin.FTAPathError{
+				LeasePath:  source,
+				PErr:       proto.Error_ERROR_INVALID_INPUT,
+				ErrMessage: fmt.Errorf("failed to get relative matched path[%v]: %v", match, err),
+			}
+		}
+
+		globbedSources = append(
+			globbedSources,
+			filepath.Join(globRoot, relativeMatch),
+		)
+	}
+
+	return globbedSources, nil
 }

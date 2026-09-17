@@ -8,8 +8,10 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
+	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/lanl/conduit/internal/logger"
+	"github.com/spf13/viper"
 )
 
 func StartPluginValidate(log *logger.ConduitLogger, t *proto.TransferDetails, nodeList string) (pluginData *plugin.PluginData, destInfo proto.DestInfo, _ *proto.FTAPluginErrors) {
@@ -29,9 +31,52 @@ func StartPluginValidate(log *logger.ConduitLogger, t *proto.TransferDetails, no
 		}
 	}
 
-	srcPlugins, dstPlugin, pluginErrs := getSrcAndDstValidationPlugins(transferID, log, t.GetSource(), t.GetDestination())
-	if len(pluginErrs.Errors) > 0 {
-		return pluginData, proto.DestInfo_DEST_NONE, pluginErrs
+	pluginErrors := &proto.FTAPluginErrors{}
+
+	// glob the sources
+	fscs, err := plugin.GetFSCsFromViper()
+	if err != nil {
+		return pluginData, proto.DestInfo_DEST_NONE, &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{{
+				PErr:       proto.Error_ERROR_CONDUIT_INTERNAL,
+				ErrMessage: fmt.Sprintf("failed to get filesystem configurations from viper: %v", err),
+			}},
+		}
+	}
+
+	globbedSources := []string{}
+	for _, s := range t.GetSource() {
+		gs, pathErr := globSource(transferID, log, s, fscs)
+		if pathErr != nil {
+			pluginErrors.Warnings = append(pluginErrors.Warnings, pathErr)
+		}
+
+		globbedSources = append(globbedSources, gs...)
+	}
+
+	// limit character count. This is to prevent a user from passing a wildcard that blows up etcd and slows down queries (it would fail the arg limit at the transfer stage)
+	maxSourceBytes := viper.GetInt(defaults.ConfigMaxSourceBytesKey)
+	byteCount := 0
+	for _, s := range globbedSources {
+		byteCount += len(s)
+	}
+
+	if byteCount > maxSourceBytes {
+		pluginErrors.Errors = []*proto.FTAPathError{{
+			PErr:       proto.Error_ERROR_INVALID_INPUT,
+			ErrMessage: fmt.Sprintf("request contains too many sources. byte limit: %v, received: %v. Please use a directory instead of a wildcard when transferring a large number of sources", maxSourceBytes, byteCount),
+		}}
+
+		return pluginData, proto.DestInfo_DEST_NONE, pluginErrors
+	}
+
+	srcPlugins, dstPlugin, pluginErrs := getSrcAndDstValidationPlugins(transferID, log, globbedSources, t.GetDestination())
+
+	pluginErrors.Errors = append(pluginErrors.Errors, pluginErrs.Errors...)
+	pluginErrors.Warnings = append(pluginErrors.Warnings, pluginErrs.Warnings...)
+
+	if len(pluginErrors.Errors) > 0 {
+		return pluginData, proto.DestInfo_DEST_NONE, pluginErrors
 	}
 
 	log.Debugf("sourceplugins: %+v", srcPlugins)
@@ -40,13 +85,12 @@ func StartPluginValidate(log *logger.ConduitLogger, t *proto.TransferDetails, no
 	pluginData.DestinationPluginInfo = dstPlugin
 
 	// add sources to pluginData
-	for _, s := range t.GetSource() {
+	for _, s := range globbedSources {
 		pluginData.SourcePluginInfo[s] = srcPlugins[s]
 	}
 
 	var wg sync.WaitGroup
 
-	pluginErrors := &proto.FTAPluginErrors{}
 	var resolvedFTADestinations, userDestinations []string
 	var ppd map[string]*string
 	var pdLock sync.Mutex
@@ -104,7 +148,7 @@ func StartPluginValidate(log *logger.ConduitLogger, t *proto.TransferDetails, no
 	}
 
 	var destPluginErrors *proto.FTAPluginErrors
-	log.Debugf("sources: %v", t.GetSource())
+	log.Debugf("sources: %v", globbedSources)
 	log.Debugf("destination: %v", t.GetDestination())
 	log.Debugf("dstPlugin.ResolvedFTAPath: %v", dstPlugin.ResolvedFTAPath)
 	log.Debugf("dstPlugin.FSC: %v", dstPlugin.FSC)

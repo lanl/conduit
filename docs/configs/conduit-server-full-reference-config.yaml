@@ -107,8 +107,8 @@ test: false
 transfer:
   # the duration that conduit will advance the expiry time of a transfer if its determined that it is still running
   expiry-advance: 60s
-  # the number in bytes (or characters) that the conduit server will accept for a source. This is useful for preventing users from providing an extremely large number of sources (ex: wildcard usage in conduit-cli)
-  max-source-bytes: 4000
+  # the number in bytes that the conduit server will accept for a source. This is useful for preventing users from providing an extremely large number of sources (ex: wildcard usage in conduit-cli)
+  max-source-bytes: 131072
 oauth:
   # the idp's openid-configuration endpoint used for oauth
   discovery-url: ""

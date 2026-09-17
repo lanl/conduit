@@ -104,11 +104,16 @@ func NewETCDManager(log *logger.ConduitLogger, tlsCert *tls.Certificate, certPoo
 	// https://github.com/etcd-io/etcd/pull/13262
 	// issue described here: https://github.com/etcd-io/etcd/issues/13300
 	em.log.Debug("creating etcd client")
+
+	const etcdMaxMessageSize = 10 * 1024 * 1024 // 10 MiB Limit
+
 	eConfig := clientv3.Config{
-		Endpoints:   etcdEndpoints,
-		DialTimeout: defaults.DefaultETCDTimeout,
-		TLS:         tlsConfig,
-		DialOptions: []grpc.DialOption{},
+		Endpoints:          etcdEndpoints,
+		DialTimeout:        defaults.DefaultETCDTimeout,
+		TLS:                tlsConfig,
+		DialOptions:        []grpc.DialOption{},
+		MaxCallSendMsgSize: etcdMaxMessageSize,
+		MaxCallRecvMsgSize: etcdMaxMessageSize,
 		// Logger: zLogger,
 	}
 	c, err := clientv3.New(eConfig)

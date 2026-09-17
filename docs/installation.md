@@ -116,7 +116,7 @@ server:
 test: false
 transfer:
   expiry-advance: 60s
-  max-source-bytes: 4000
+  max-source-bytes: 131072
 ```
 
 3. Generate certs:

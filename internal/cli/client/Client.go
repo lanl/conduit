@@ -343,9 +343,11 @@ func (cc *ConduitClient) StartTransfer(action string, options map[string]*anypb.
 			}
 		}()
 
+		grpcLimit := viper.GetInt(defaults.ConfigClientGrpcLimitKey)
+
 		// setup a status stream until validation succeeds
 		ctx, wCancel := context.WithCancel(context.Background())
-		wc, err := cc.client.WatchStatus(ctx, &proto.TransferIds{Value: []string{response.GetTransferID()}})
+		wc, err := cc.client.WatchStatus(ctx, &proto.TransferIds{Value: []string{response.GetTransferID()}}, grpc.MaxCallRecvMsgSize(grpcLimit))
 		if err != nil {
 			wCancel()
 			return nil, fmt.Errorf("failed to watch transfer[%v]: %v", response.GetTransferID(), err)
@@ -500,8 +502,10 @@ func (cc *ConduitClient) Query(qo *proto.QueryOptions) (*proto.MultiTransferDeta
 // WatchStatus sets up a stream for the client to watch the status of transfers
 // in close to real time
 func (cc *ConduitClient) WatchStatus(tids []string, user string) (proto.ConduitApi_WatchStatusClient, context.CancelFunc, error) {
+	grpcLimit := viper.GetInt(defaults.ConfigClientGrpcLimitKey)
+
 	ctx, wCancel := context.WithCancel(context.Background())
-	wc, err := cc.client.WatchStatus(ctx, &proto.TransferIds{Value: tids, User: user}, grpc.WaitForReady(true))
+	wc, err := cc.client.WatchStatus(ctx, &proto.TransferIds{Value: tids, User: user}, grpc.MaxCallRecvMsgSize(grpcLimit), grpc.WaitForReady(true))
 	if err != nil {
 		wCancel()
 		return nil, nil, fmt.Errorf("failed to watch transfer[%v]: %v", tids, err)

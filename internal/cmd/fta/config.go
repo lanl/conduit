@@ -97,6 +97,7 @@ func initConfig(cfgFile string) {
 
 func createDefaultConfig() {
 	viper.SetDefault(defaults.ConfigExpiryIntervalKey, DefaultExpiryUpdateInterval)
+	viper.SetDefault(defaults.ConfigMaxSourceBytesKey, defaults.DefaultMaxSourceBytes)
 
 	setPluginDefaults()
 

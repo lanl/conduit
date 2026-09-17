@@ -1,6 +1,8 @@
 transfer:
   # duration of interval between each lease extension
   expiry-interval: 30s
+  # the number in bytes that the conduit server will accept for a source. This is useful for preventing users from providing an extremely large number of sources (ex: wildcard usage in slurm plugin)
+  max-source-bytes: 131072
 # filesystem plugin configurations
 filesystems:
   # an arbitrary name for the filesystem

@@ -52,7 +52,7 @@ ARG TARGETOS
 
 RUN mkdir -p /etc/conduit 
 
-RUN wget -qO /bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/latest/download/grpc_health_probe-${TARGETOS}-${TARGETARCH} && \
+RUN wget -q -O /bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/latest/download/grpc_health_probe-${TARGETOS}-${TARGETARCH} && \
     chmod +x /bin/grpc_health_probe
 
 COPY --from=conduit-build /sbin/conduit-server /sbin/conduit-server

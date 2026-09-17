@@ -3,6 +3,7 @@ auth:
 transfer:
   expiry-interval: 10s
   expiry-advance: 60s
+  max-source-bytes: 131072
 etcd:
   - ip: 192.168.20.21
     port: 2379

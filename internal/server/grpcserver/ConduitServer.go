@@ -382,7 +382,7 @@ func (s *ConduitServer) StartConduitServer() error {
 
 	s.tMutex.Unlock()
 
-	// have etcd mangager start watching the transfer and lease prefixes
+	// have etcd manager start watching the transfer and lease prefixes
 	wctx, wCancel := context.WithCancelCause(context.Background())
 	go s.em.StartWatchChannels(rev, wCancel)
 	go s.em.StartUpdatingExpiries(wctx)
