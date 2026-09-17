@@ -94,7 +94,7 @@ func (em *ETCDManager) updateExpiriesOnce(its map[string]map[uuid.UUID]proto.Inc
 
 	// send the chunks to etcd
 	for ci := range opsChunks {
-		em.log.Infof("sending chunk %v of %v", ci, len(opsChunks))
+		em.log.Debugf("updating expiry batch %v of %v", ci+1, len(opsChunks))
 
 		txn, cancel := em.Txn()
 		txn.Then(opsChunks[ci]...)
