@@ -357,11 +357,6 @@ func (s *ConduitServer) StartConduitServer() error {
 		log.Fatalf("no etcd endpoints provided, check config")
 	}
 
-	// err = s.lws[0].CleanupETCD()
-	// if err != nil {
-	// 	s.log.Fatalf("failed to cleanup etcd: %v", err)
-	// }
-
 	transfers, rev, err := s.em.GetAllTransfers()
 	if err != nil {
 		return fmt.Errorf("failed to get all existing transfers from etcd: %v", err)
