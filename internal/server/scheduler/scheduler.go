@@ -60,6 +60,9 @@ type Scheduler struct {
 
 	scheduleWake   chan bool
 	scheduleCancel context.CancelFunc
+
+	dispatching      map[uuid.UUID]int // intermediate state holder between the scheduler queue and actually submitting to the fta
+	dispatchingMutex sync.RWMutex
 }
 
 // NodeInfo contains information regarding a node
@@ -108,6 +111,7 @@ func NewScheduler(log *logger.ConduitLogger, cm *cert.CertManager, em *etcd.ETCD
 		id:            id,
 		activeJobs:    make(map[uuid.UUID]bool),
 		scheduleWake:  make(chan bool, 1),
+		dispatching:   make(map[uuid.UUID]int),
 	}
 
 	// adding nodes to scheduler's map from the CONDUIT config file
@@ -379,6 +383,9 @@ func (s *Scheduler) jobRequest() (keepScheduling bool) {
 		return false
 	}
 
+	s.startDispatch(top.JobID)
+	defer s.finishDispatch(top.JobID)
+
 	it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: top.JobID.String()})
 
 	// update the expiry for the transfer
@@ -478,6 +485,7 @@ func (s *Scheduler) jobRequest() (keepScheduling bool) {
 		compares := []clientv3.Cmp{
 			clientv3.Compare(clientv3.CreateRevision(string(it.ETCDJobsKey())), ">", 0),
 			clientv3.Compare(clientv3.Value(it.ETCDJobsKey()), "=", string(schedulerJobValue)),
+			clientv3.Compare(clientv3.Value(it.ETCDErrorKey()), "=", proto.Error_ERROR_NONE.String()),
 		}
 
 		// delete job from etcd
@@ -885,4 +893,45 @@ func (s *Scheduler) addExistingJobsToQueue() error {
 	s.handleJobEvent(events)
 
 	return nil
+}
+
+func (s *Scheduler) startDispatch(id uuid.UUID) {
+	s.dispatchingMutex.Lock()
+	s.dispatching[id]++
+	s.dispatchingMutex.Unlock()
+}
+
+func (s *Scheduler) finishDispatch(id uuid.UUID) {
+	s.dispatchingMutex.Lock()
+	s.dispatching[id]--
+
+	if s.dispatching[id] == 0 {
+		delete(s.dispatching, id)
+	}
+
+	s.dispatchingMutex.Unlock()
+}
+
+// returns if a transfer is running on or about to run on the nodes
+func (s *Scheduler) IsTransferRunning(id uuid.UUID) bool {
+	s.dispatchingMutex.RLock()
+	dispatching := s.dispatching[id] > 0
+	s.dispatchingMutex.RUnlock()
+
+	if dispatching {
+		return true
+	}
+
+	idString := id.String()
+
+	s.nodeInfoLock.RLock()
+	defer s.nodeInfoLock.RUnlock()
+
+	for _, node := range s.nodeInfo {
+		if _, ok := node.Jobs[idString]; ok {
+			return true
+		}
+	}
+
+	return false
 }

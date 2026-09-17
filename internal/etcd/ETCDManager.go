@@ -670,126 +670,191 @@ func (em *ETCDManager) forceAddErr(it proto.IncompleteTransfer, errorState proto
 	return false, proto.Error_ERROR_CONDUIT_INTERNAL, fmt.Errorf("etcd was never contacted to safely set err state for transfer[%s]", it.GetTransferID())
 }
 
-// FailTransfer DOES NOT require a full transferDetails object including all leases
-func (em *ETCDManager) AbortTransfer(t *proto.TransferDetails, errorMessage error) error {
+// AbortTransfer requests that an active transfer be aborted.
+// The transfer worker is responsible for transitioning ABORT -> ABORTED
+// and performing any required cleanup.
+func (em *ETCDManager) AbortTransfer(t proto.IncompleteTransfer, errorMessage error) error {
 	comparisons := []clientv3.Cmp{
+		clientv3.Compare(clientv3.Value(t.ETCDActiveKey()), "=", strconv.FormatBool(true)),
 		clientv3.Compare(clientv3.Value(t.ETCDStateKey()), "!=", proto.TransferState_TRANSFER_ERROR.String()),
 		clientv3.Compare(clientv3.Value(t.ETCDStateKey()), "!=", proto.TransferState_TRANSFER_ABORTED.String()),
 		clientv3.Compare(clientv3.Value(t.ETCDStateKey()), "!=", proto.TransferState_TRANSFER_ABORT.String()),
+		clientv3.Compare(clientv3.Value(t.ETCDErrorKey()), "=", proto.Error_ERROR_NONE.String()),
 	}
 
 	actions := []clientv3.Op{
 		clientv3.OpPut(t.ETCDStateKey(), proto.TransferState_TRANSFER_ABORT.String()),
 		clientv3.OpPut(t.ETCDErrorKey(), proto.Error_ERROR_ABORTED.String()),
 		clientv3.OpPut(t.ETCDErrorMessageKey(), errorMessage.Error()),
+		clientv3.OpDelete(t.ETCDJobsKey(), clientv3.WithPrefix()),
+	}
+
+	// If the comparison fails, retrieve the current state atomically
+	// so we can distinguish an already-aborted transfer from one that
+	// can no longer be aborted.
+	elses := []clientv3.Op{
+		clientv3.OpGet(t.ETCDStateKey()),
+		clientv3.OpGet(t.ETCDActiveKey()),
+		clientv3.OpGet(t.ETCDErrorKey()),
+	}
+
+	resp, err := em.RetryTxn(&comparisons, &actions, &elses, defaults.MaxRetries, defaults.RetryDelay)
+	if err != nil {
+		return fmt.Errorf("failed to abort transfer[%s]: %w", t.GetTransferID(), err)
+	}
+
+	if resp.Succeeded {
+		return nil
+	}
+
+	if len(resp.Responses) < 3 {
+		return fmt.Errorf("failed to abort transfer[%s]: etcd did not return the current transfer state", t.GetTransferID())
+	}
+
+	stateResp := resp.Responses[0].GetResponseRange()
+	activeResp := resp.Responses[1].GetResponseRange()
+	errorResp := resp.Responses[2].GetResponseRange()
+
+	if stateResp == nil || len(stateResp.Kvs) == 0 {
+		return fmt.Errorf("failed to abort transfer[%s]: transfer state does not exist", t.GetTransferID())
+	}
+
+	currentState := string(stateResp.Kvs[0].Value)
+
+	if activeResp == nil || len(activeResp.Kvs) == 0 {
+		return fmt.Errorf("failed to abort transfer[%s]: active state does not exist", t.GetTransferID())
+	}
+
+	active, err := strconv.ParseBool(string(activeResp.Kvs[0].Value))
+	if err != nil {
+		return fmt.Errorf("failed to parse active state for transfer[%s]: %w", t.GetTransferID(), err)
+	}
+
+	// An inactive transfer is already complete. Clean up any runtime state
+	// that may have been left behind.
+	if !active {
+		if err := em.cleanupInactiveTransfer(t); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	// ABORT/ABORTED while still active means the abort is already being
+	// processed. Do not interfere with the worker's cleanup.
+	switch currentState {
+	case proto.TransferState_TRANSFER_ABORT.String(), proto.TransferState_TRANSFER_ABORTED.String():
+		return nil
+	}
+
+	if errorResp == nil || len(errorResp.Kvs) == 0 {
+		return fmt.Errorf("failed to abort transfer[%s]: error state does not exist", t.GetTransferID())
+	}
+
+	currentError := string(errorResp.Kvs[0].Value)
+
+	if currentError != proto.Error_ERROR_NONE.String() {
+		return fmt.Errorf("failed to abort transfer[%s]: transfer already has error[%s]", t.GetTransferID(), currentError)
+	}
+
+	if currentState == proto.TransferState_TRANSFER_ERROR.String() {
+		return fmt.Errorf("failed to abort transfer[%s]: transfer is already in error state", t.GetTransferID())
+	}
+
+	return fmt.Errorf("failed to abort transfer[%s]: current state is %s", t.GetTransferID(), currentState)
+}
+
+func (em *ETCDManager) cleanupInactiveTransfer(t proto.IncompleteTransfer) error {
+	comparisons := []clientv3.Cmp{
+		clientv3.Compare(clientv3.Value(t.ETCDActiveKey()), "=", strconv.FormatBool(false)),
+	}
+
+	actions := []clientv3.Op{
+		clientv3.OpDelete(t.ETCDLeaseListKey(), clientv3.WithPrefix()),
+		clientv3.OpDelete(t.ETCDJobsKey(), clientv3.WithPrefix()),
 	}
 
 	resp, err := em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to clean runtime state for transfer[%s]: %w", t.GetTransferID(), err)
 	}
+
 	if !resp.Succeeded {
-		// check that the active key exists before putting it
-		comparisons := []clientv3.Cmp{
-			clientv3.Compare(clientv3.CreateRevision(t.ETCDActiveKey()), ">", 0),
-		}
-
-		actions := []clientv3.Op{
-			clientv3.OpPut(t.ETCDActiveKey(), strconv.FormatBool(false)),
-			clientv3.OpDelete(t.ETCDLeaseListKey(), clientv3.WithPrefix()),
-		}
-
-		resp, err := em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
-		if err != nil {
-			em.log.Errorf("failed to remove lease from etcd for transfer[%s]: %v", t.GetTransferID(), err)
-		}
-		if !resp.Succeeded {
-			em.log.Errorf("failed to remove lease from etcd for transfer[%s]: it has recoverable paths", t.GetTransferID())
-		}
-
-		return fmt.Errorf("failed to set abort state for transfer[%s], has it already completed?: %v", t.GetTransferID(), resp.Responses)
+		return fmt.Errorf("transfer[%s] became active while attempting cleanup", t.GetTransferID())
 	}
+
 	return nil
 }
 
-// SubmitTransfer is the initial submission into ETCD
-func (em *ETCDManager) SubmitTransfers(transfers []*proto.TransferDetails) {
-	transferOps := []clientv3.Op{}
-	finalTransferOps := []clientv3.Op{}
+// SubmitTransfers is the initial submission into ETCD.
+func (em *ETCDManager) SubmitTransfers(transfers []*proto.TransferDetails) error {
+	type submitBatch struct {
+		ops       []clientv3.Op
+		transfers []proto.IncompleteTransfer
+	}
+
+	batches := []submitBatch{}
+	currentBatch := submitBatch{}
+
 	for _, t := range transfers {
+		if t.GetState() != proto.TransferState_TRANSFER_INIT_COMPLETE {
+			return fmt.Errorf("transfer[%s] submitted with invalid initial state[%s]", t.GetTransferID(), t.GetState())
+		}
+
 		ops, err := ConvertETCDTransfer(t)
 		if err != nil {
-			tErr := fmt.Errorf("transfer[%s]: failed to get ops for etcd: %v", t.GetTransferID(), err)
-			em.log.Error(tErr)
-			fErr := em.CompleteTransfer(t)
-			if fErr != nil {
-				em.log.Errorf("failed to fail transfer[%s]: %v", t.GetTransferID(), fErr)
-			}
-			return
+			return fmt.Errorf("transfer[%s]: failed to get ops for etcd: %v", t.GetTransferID(), err)
 		}
 
-		transferOps = append(transferOps, ops...)
-		// set transfer state INIT_COMPLETE to trigger the transfer worker
-		// these need to be the last operations because anything after it might not get picked up by the transfer workers
-		fOp := clientv3.OpPut(t.ETCDStateKey(), proto.TransferState_TRANSFER_INIT_COMPLETE.String())
-		finalTransferOps = append(finalTransferOps, fOp)
-	}
-
-	// split ops into chunks. ETCD has a limit of how many operations you can do per transfer. ETCD's default is 128
-	opsChunks := [][]clientv3.Op{}
-	for i := 0; i < len(transferOps); i += OpChunkSize {
-		end := i + OpChunkSize
-		if end > len(transferOps) {
-			end = len(transferOps)
+		// A single transfer must never be split between transactions.
+		if len(ops) > OpChunkSize {
+			return fmt.Errorf("transfer[%s] requires %d etcd operations, exceeding OpChunkSize[%d]", t.GetTransferID(), len(ops), OpChunkSize)
 		}
-		opsChunks = append(opsChunks, transferOps[i:end])
-	}
 
-	for i := 0; i < len(finalTransferOps); i += OpChunkSize {
-		end := i + OpChunkSize
-		if end > len(finalTransferOps) {
-			end = len(finalTransferOps)
+		// Adding this transfer would overflow the current batch.
+		// Save the current batch and start a new one.
+		if len(currentBatch.ops) > 0 && len(currentBatch.ops)+len(ops) > OpChunkSize {
+
+			batches = append(batches, currentBatch)
+			currentBatch = submitBatch{}
 		}
-		opsChunks = append(opsChunks, finalTransferOps[i:end])
+
+		currentBatch.ops = append(currentBatch.ops, ops...)
+		currentBatch.transfers = append(currentBatch.transfers, t)
 	}
 
-	// send the chunks to etcd
-	for ci, c := range opsChunks {
-		em.log.Debugf("sending chunk %v of %v", ci, len(opsChunks))
+	// Add the final partially-filled batch.
+	if len(currentBatch.ops) > 0 {
+		batches = append(batches, currentBatch)
+	}
 
-		var tErr error
-		resp, err := em.RetryTxn(nil, &c, nil, defaults.MaxRetries, defaults.RetryDelay)
+	// Send each batch to etcd.
+	for i, batch := range batches {
+		em.log.Debugf("sending transfer batch %d of %d containing %d transfers and %d operations", i+1, len(batches), len(batch.transfers), len(batch.ops))
+
+		comparisons := make([]clientv3.Cmp, 0, len(batch.transfers))
+		ids := make([]string, 0, len(batch.transfers))
+
+		for _, t := range batch.transfers {
+			ids = append(ids, t.GetTransferID())
+			comparisons = append(comparisons, clientv3.Compare(clientv3.CreateRevision(t.ETCDStateKey()), "=", 0))
+		}
+
+		resp, err := em.RetryTxn(&comparisons, &batch.ops, nil, defaults.MaxRetries, defaults.RetryDelay)
 		if err != nil {
-			tErr = fmt.Errorf("error while submitting transfers: %v", err)
+			return fmt.Errorf("error while submitting transfers[%v]: %v", ids, err)
 		}
-		if resp != nil && !resp.Succeeded {
-			tErr = fmt.Errorf("if condition failed to etcd transaction while submitting transfers to etcd")
-		}
-		if err != nil || !resp.Succeeded {
-			failedIDs := []uuid.UUID{}
-			for _, op := range c {
-				id, _, err := proto.ParseETCDTransfersKey(string(op.KeyBytes()))
-				if err != nil {
-					em.log.Errorf("failed to parse transfer key[%v]: %v", string(op.KeyBytes()))
-					continue
-				}
-				failedIDs = append(failedIDs, id)
-			}
 
-			tErr = fmt.Errorf("%v: %v", tErr, failedIDs)
-			em.log.Error(tErr)
-
-			for _, tid := range failedIDs {
-				fErr := em.CompleteTransfer(&proto.TransferDetails{TransferID: tid.String()})
-				if fErr != nil {
-					em.log.Errorf("failed to fail transfer[%s]: %v", tid, fErr)
-				}
-			}
+		if resp == nil {
+			return fmt.Errorf("response from etcd was nil while submitting transfers[%v]", ids)
 		}
-		if err != nil {
-			return
+
+		if !resp.Succeeded {
+			return fmt.Errorf("etcd transaction failed while submitting transfers[%v]", ids)
 		}
 	}
+
+	return nil
 }
 
 // PauseTransfer sets the paused state value for a transfer in ETCD

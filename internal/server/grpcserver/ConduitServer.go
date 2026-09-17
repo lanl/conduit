@@ -232,12 +232,6 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 		return nil, fmt.Errorf("failed to create conduit table in rqlite: %v", err)
 	}
 
-	numWorkers := viper.GetInt(defaults.ConfigConcurrentTransferWorkersKey)
-	tws := []*transferworker.TransferWorker{}
-	for i := 0; i < numWorkers; i++ {
-		tws = append(tws, transferworker.NewTransferWorker(log, cm, em))
-	}
-
 	numSchedulers := viper.GetInt(defaults.ConfigConcurrentSchedulersKey)
 	sched := []*scheduler.Scheduler{}
 	for i := 0; i < numSchedulers; i++ {
@@ -246,6 +240,12 @@ func CreateConduitServer(debug bool) (*ConduitServer, error) {
 			return nil, fmt.Errorf("failed to create scheduler %v", err)
 		}
 		sched = append(sched, s)
+	}
+
+	numWorkers := viper.GetInt(defaults.ConfigConcurrentTransferWorkersKey)
+	tws := []*transferworker.TransferWorker{}
+	for i := 0; i < numWorkers; i++ {
+		tws = append(tws, transferworker.NewTransferWorker(log, cm, em, sched))
 	}
 
 	numWatchdogs := viper.GetInt(defaults.ConfigConcurrentWatchdogsKey)
@@ -878,7 +878,7 @@ func (s *ConduitServer) resumeConduit() error {
 	numWorkers := viper.GetInt(defaults.ConfigConcurrentTransferWorkersKey)
 	tws := []*transferworker.TransferWorker{}
 	for i := 0; i < numWorkers; i++ {
-		ntw := transferworker.NewTransferWorker(s.log, s.cm, s.em)
+		ntw := transferworker.NewTransferWorker(s.log, s.cm, s.em, sched)
 		tws = append(tws, ntw)
 	}
 

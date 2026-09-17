@@ -232,7 +232,6 @@ func ConvertETCDTransfer(t *proto.TransferDetails) ([]clientv3.Op, error) {
 	// }
 
 	// create ops for transfer state, error, user, starttime, endtime, and error message
-	ops = append(ops, clientv3.OpPut(t.ETCDStateKey(), t.GetState().String()))
 	ops = append(ops, clientv3.OpPut(t.ETCDErrorKey(), t.GetError().String()))
 	ops = append(ops, clientv3.OpPut(t.ETCDSourceKey(), string(sourceList)))
 	ops = append(ops, clientv3.OpPut(t.ETCDWarningsKey(), string(warningsList)))
@@ -278,6 +277,9 @@ func ConvertETCDTransfer(t *proto.TransferDetails) ([]clientv3.Op, error) {
 		return nil, fmt.Errorf("transfer[%s]: failed to marshal transfer status details for etcd: %v", t.GetTransferID(), err)
 	}
 	ops = append(ops, clientv3.OpPut(t.ETCDStatusDetailsKey(), string(esd)))
+
+	// make the state op happen at the end
+	ops = append(ops, clientv3.OpPut(t.ETCDStateKey(), t.GetState().String()))
 
 	return ops, nil
 }

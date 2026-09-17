@@ -137,7 +137,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 
 	transfer := proto.NewTransferDetails()
 
-	transfer.State = proto.TransferState_TRANSFER_INIT
+	transfer.State = proto.TransferState_TRANSFER_INIT_COMPLETE
 	transfer.TransferID = transferID.String()
 	transfer.Source = tr.GetSource()
 	transfer.Destination = tr.GetDestination()
@@ -171,7 +171,9 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 		s.eMutex.RUnlock()
 	}
 
-	s.em.SubmitTransfers([]*proto.TransferDetails{transfer})
+	if err := s.em.SubmitTransfers([]*proto.TransferDetails{transfer}); err != nil {
+		return nil, fmt.Errorf("failed to submit transfer[%s]: %v", transfer.GetTransferID(), err)
+	}
 
 	return transfer, nil
 }
@@ -769,7 +771,7 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 
 	transfer := proto.NewTransferDetails()
 
-	transfer.State = proto.TransferState_TRANSFER_INIT
+	transfer.State = proto.TransferState_TRANSFER_INIT_COMPLETE
 	transfer.TransferID = transferID.String()
 	transfer.Source = tr.GetSource()
 	transfer.Destination = tr.GetDestination()
@@ -787,7 +789,9 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 		transfer.Warnings = append(transfer.Warnings, fmt.Sprintf("%s (Validate Transfer)", adminWarning))
 	}
 
-	s.em.SubmitTransfers([]*proto.TransferDetails{transfer})
+	if err := s.em.SubmitTransfers([]*proto.TransferDetails{transfer}); err != nil {
+		return nil, fmt.Errorf("failed to submit transfer[%s]: %v", transfer.GetTransferID(), err)
+	}
 
 	return transfer, nil
 }

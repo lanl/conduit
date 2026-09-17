@@ -229,8 +229,8 @@ type TransferState int32
 const (
 	TransferState_TRANSFER_NONE                 TransferState = 0
 	TransferState_TRANSFER_ERROR                TransferState = 1 // check error status
-	TransferState_TRANSFER_ABORT                TransferState = 2
-	TransferState_TRANSFER_ABORTED              TransferState = 3
+	TransferState_TRANSFER_ABORT                TransferState = 2 // abort requested / abort cleanup in progress
+	TransferState_TRANSFER_ABORTED              TransferState = 3 // abort cleanup finished; terminal state
 	TransferState_TRANSFER_INIT                 TransferState = 10
 	TransferState_TRANSFER_INIT_COMPLETE        TransferState = 11 // set by conduit
 	TransferState_TRANSFER_VALIDATION_READY     TransferState = 12 // set by conduit

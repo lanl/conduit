@@ -18,6 +18,7 @@ import (
 	"github.com/lanl/conduit/internal/etcd"
 	"github.com/lanl/conduit/internal/logger"
 	cert "github.com/lanl/conduit/internal/pki"
+	"github.com/lanl/conduit/internal/server/scheduler"
 	"github.com/lanl/conduit/util"
 	"github.com/spf13/viper"
 	"go.etcd.io/etcd/api/v3/mvccpb"
@@ -27,10 +28,11 @@ import (
 )
 
 type TransferWorker struct {
-	id  uuid.UUID
-	log *logger.ConduitLogger
-	em  *etcd.ETCDManager
-	cm  *cert.CertManager
+	id         uuid.UUID
+	log        *logger.ConduitLogger
+	em         *etcd.ETCDManager
+	cm         *cert.CertManager
+	schedulers []*scheduler.Scheduler
 
 	jobs   map[uuid.UUID]bool // the jobs map is only used for stopping and keeps track of the events that the transfer worker is actively handling
 	jMutex sync.Mutex         // lock for jobs map
@@ -43,20 +45,21 @@ type TransferWorker struct {
 	sMutex        sync.Mutex // lock for transfer worker state
 }
 
-func NewTransferWorker(log *logger.ConduitLogger, cm *cert.CertManager, em *etcd.ETCDManager) *TransferWorker {
+func NewTransferWorker(log *logger.ConduitLogger, cm *cert.CertManager, em *etcd.ETCDManager, schedulers []*scheduler.Scheduler) *TransferWorker {
 	id := uuid.New()
 
 	// change prefix for logger
 	l := logger.NewConduitLogger(log.GetLevel(), fmt.Sprintf("worker[%s]:", id))
 
 	tw := &TransferWorker{
-		id:        id,
-		log:       l,
-		cm:        cm,
-		em:        em,
-		jobs:      make(map[uuid.UUID]bool),
-		leaseWait: make(map[uuid.UUID]chan bool),
-		state:     proto.ServerState_SERVER_STARTING,
+		id:         id,
+		log:        l,
+		cm:         cm,
+		em:         em,
+		schedulers: schedulers,
+		jobs:       make(map[uuid.UUID]bool),
+		leaseWait:  make(map[uuid.UUID]chan bool),
+		state:      proto.ServerState_SERVER_STARTING,
 	}
 
 	return tw
@@ -301,7 +304,17 @@ func (tw *TransferWorker) handleTransferEvents(evs []*clientv3.Event) {
 					}
 				}(ev, eventID)
 			case t.ETCDErrorKey():
-				if string(ev.Kv.Value) != proto.Error_ERROR_NONE.String() {
+				switch string(ev.Kv.Value) {
+				case proto.Error_ERROR_NONE.String():
+					tw.removeJob(eventID)
+					continue
+
+				case proto.Error_ERROR_ABORTED.String():
+					// Abort cleanup is driven by the TRANSFER_ABORT state event.
+					tw.removeJob(eventID)
+					continue
+
+				default:
 					go tw.handleTransferError(t, eventID)
 					continue
 				}

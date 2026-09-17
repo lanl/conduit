@@ -178,8 +178,8 @@ enum SchedulerCommand {
 enum TransferState {
     TRANSFER_NONE = 0;                  
     TRANSFER_ERROR = 1;                 // check error status
-    TRANSFER_ABORT = 2;
-    TRANSFER_ABORTED = 3;
+    TRANSFER_ABORT = 2;                 // abort requested / abort cleanup in progress
+    TRANSFER_ABORTED = 3;               // abort cleanup finished; terminal state
 
     TRANSFER_INIT = 10;
     TRANSFER_INIT_COMPLETE = 11;         // set by conduit
