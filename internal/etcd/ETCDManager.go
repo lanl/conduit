@@ -66,7 +66,7 @@ type ETCDManager struct {
 	expiries map[string]map[uuid.UUID]proto.IncompleteTransfer
 	exmutex  sync.RWMutex
 
-	// activeWaiters is a map specifically for anything waiting for transfers to be completed
+	// activeWaiters is a map specifically for anything waiting for transfers to be completed (for example a transfer worker acquiring a lease)
 	// key: transferID of the watched transfer
 	// 		key: waiterID    value: channel to accept completed transferIDs
 	activeWaiters map[uuid.UUID]map[uuid.UUID]chan uuid.UUID
@@ -485,50 +485,53 @@ func (em *ETCDManager) CompactRevision(rev int64) (curRev int64, err error) {
 
 // CompleteTransfer DOES NOT require a full transferDetails object including all leases
 func (em *ETCDManager) CompleteTransfer(t proto.IncompleteTransfer) error {
-	// check that the active key exists before putting it
+	newExpiry := timestamppb.New(
+		time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)),
+	)
+	endTime := timestamppb.Now()
+
 	comparisons := []clientv3.Cmp{
 		clientv3.Compare(clientv3.CreateRevision(t.ETCDActiveKey()), ">", 0),
 	}
+
 	actions := []clientv3.Op{
+		// Always mark the transfer inactive and clean up runtime state.
 		clientv3.OpPut(t.ETCDActiveKey(), strconv.FormatBool(false)),
 		clientv3.OpDelete(t.ETCDLeaseListKey(), clientv3.WithPrefix()),
 		clientv3.OpDelete(t.ETCDJobsKey(), clientv3.WithPrefix()),
+
+		// Only make the transfer ready for archival if nobody has already
+		// started changing the archive state.
+		clientv3.OpTxn(
+			[]clientv3.Cmp{
+				clientv3.Compare(clientv3.Value(t.ETCDArchiveStateKey()), "=", proto.ArchiveState_ARCHIVE_NONE.String()),
+			},
+			[]clientv3.Op{
+				clientv3.OpPut(t.ETCDArchiveStateKey(), proto.ArchiveState_ARCHIVE_READY.String()),
+				clientv3.OpPut(t.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)),
+			},
+			nil,
+		),
+
+		// Only set the end time once.
+		clientv3.OpTxn(
+			[]clientv3.Cmp{
+				clientv3.Compare(clientv3.Value(t.ETCDEndTimeKey()), "=", time.Unix(0, 0).UTC().Format(time.RFC3339)),
+			},
+			[]clientv3.Op{
+				clientv3.OpPut(t.ETCDEndTimeKey(), endTime.AsTime().Format(time.RFC3339)),
+			},
+			nil,
+		),
 	}
 
 	resp, err := em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
 	if err != nil {
-		return fmt.Errorf("error while setting active key to false for transfer[%s]: %v", t.GetTransferID(), err)
+		return fmt.Errorf("error while completing transfer[%s]: %v", t.GetTransferID(), err)
 	}
+
 	if !resp.Succeeded {
-		return fmt.Errorf("failed to set active key to false for transfer[%s]: %v", t.GetTransferID(), resp.Responses)
-	}
-
-	newExpiry := timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
-
-	// attempt to set archive state to ready
-	comparisons = []clientv3.Cmp{
-		clientv3.Compare(clientv3.Value(t.ETCDArchiveStateKey()), "=", proto.ArchiveState_ARCHIVE_NONE.String()),
-	}
-	actions = []clientv3.Op{
-		clientv3.OpPut(t.ETCDArchiveStateKey(), proto.ArchiveState_ARCHIVE_READY.String()),
-		clientv3.OpPut(t.ETCDExpiryKey(), newExpiry.AsTime().Format(time.RFC3339)),
-	}
-
-	resp, err = em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
-	if err != nil {
-		return fmt.Errorf("error while setting archive state to ready for transfer[%s]: %v", t.GetTransferID(), err)
-	}
-	if !resp.Succeeded {
-		em.log.Warnf("failed to set archive state to ready for transfer[%s]. Is it already being archived?: %v", t.GetTransferID(), resp.Responses)
-	}
-
-	// set the end time for the transfer if not already set
-	comparisons = []clientv3.Cmp{clientv3.Compare(clientv3.Value(t.ETCDEndTimeKey()), "=", time.Unix(0, 0).UTC().Format(time.RFC3339))}
-	actions = []clientv3.Op{clientv3.OpPut(t.ETCDEndTimeKey(), timestamppb.Now().AsTime().Format(time.RFC3339))}
-
-	resp, err = em.RetryTxn(&comparisons, &actions, nil, defaults.MaxRetries, defaults.RetryDelay)
-	if err != nil {
-		return fmt.Errorf("error while setting endtime key to now for transfer[%s]: %v", t.GetTransferID(), err)
+		return fmt.Errorf("failed to complete transfer[%s]: active key does not exist", t.GetTransferID())
 	}
 
 	return nil
