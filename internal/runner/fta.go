@@ -228,7 +228,7 @@ func (f *FtaApi) Start(ctx context.Context, _ *emptypb.Empty) (*api.FTAStartResp
 	return &api.FTAStartResponse{Error: api.Error_ERROR_CONDUIT_INTERNAL, ErrorMessage: rErr.Error()}, nil
 }
 
-// CompletePluginETCD sets the related keys in etcd to signal that the plugin has ended on the FTA node
+// Complete sets the related keys in etcd to signal that the plugin has ended on the FTA node
 func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*api.FTACompleteResponse, error) {
 	f.log.Debugf("complete plugin message received for transfer[%s][%s]", f.transferID, f.command)
 
@@ -294,9 +294,6 @@ func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*ap
 				Error:        api.Error_ERROR_CONDUIT_INTERNAL,
 				ErrorMessage: rErr.Error(),
 			}, nil
-
-			// log.Error(tErr)
-			// transferError = tErr
 		}
 
 		txnActions = append(txnActions, clientv3.OpPut(it.ETCDLeasesKey(), string(allLeasesJSON)))
@@ -329,7 +326,6 @@ func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*ap
 	}
 
 	if req.GetDestInfo() != api.DestInfo_DEST_NONE {
-		// txnActions = append(txnActions, clientv3.OpPut(ft.transfer.ETCDFullDestinationsKey(), string(fullDestJSON)))
 		txnActions = append(txnActions, clientv3.OpPut(it.ETCDDestInfoKey(), req.GetDestInfo().String()))
 	}
 
@@ -357,7 +353,7 @@ func (f *FtaApi) Complete(ctx context.Context, req *api.FTACompleteRequest) (*ap
 	return &api.FTACompleteResponse{Error: api.Error_ERROR_NONE, ErrorMessage: ""}, nil
 }
 
-// ErrorPluginETCD sets the related keys in etcd to signal that the plugin has encountered an error on the FTA node
+// Fail sets the related keys in etcd to signal that the plugin has encountered an error on the FTA node
 func (f *FtaApi) Fail(ctx context.Context, req *api.FTAFailRequest) (*api.FTAFailResponse, error) {
 	f.log.Debugf("fail plugin message received for transfer[%s][%s]", f.transferID, f.command)
 
@@ -419,7 +415,6 @@ func (f *FtaApi) Fail(ctx context.Context, req *api.FTAFailRequest) (*api.FTAFai
 	}
 
 	if req.GetDestInfo() != proto.DestInfo_DEST_NONE {
-		// txnActions = append(txnActions, clientv3.OpPut(ft.transfer.ETCDFullDestinationsKey(), string(fullDestJSON)))
 		txnActions = append(txnActions, clientv3.OpPut(it.ETCDDestInfoKey(), req.GetDestInfo().String()))
 	}
 
