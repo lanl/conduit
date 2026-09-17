@@ -30,7 +30,7 @@ func StartPluginTransfer(log *logger.ConduitLogger, t *proto.TransferDetails, cl
 		return &proto.FTAPluginErrors{
 			Errors: []*proto.FTAPathError{
 				{
-					PErr:       proto.Error_ERROR_ETCD_CONNECTION,
+					PErr:       proto.Error_ERROR_CONDUIT_INTERNAL,
 					ErrMessage: fmt.Sprintf("failed to decode plugin data in transfer details: %v", err),
 				},
 			},
