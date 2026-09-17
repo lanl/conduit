@@ -5,6 +5,8 @@ package watchdog
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +21,8 @@ import (
 	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
+
+const maxCleanupPerPass = 64
 
 type Watchdog struct {
 	id  uuid.UUID
@@ -80,9 +84,10 @@ func (w *Watchdog) StartWatchdog() error {
 	}
 	waitChan <- true
 
-	_, cancel := context.WithCancelCause(context.Background())
-	// go w.watchdogCleaner(ctx)
+	ctx, cancel := context.WithCancelCause(context.Background())
 	w.cleanerCancel = cancel
+
+	go w.watchdogCleaner(ctx)
 
 	w.sMutex.Lock()
 	w.state = proto.ServerState_SERVER_RUNNING
@@ -155,7 +160,9 @@ func (w *Watchdog) StopWatchdog() error {
 	}
 	w.sMutex.Unlock()
 
-	w.cleanerCancel(fmt.Errorf("stopping watchdog"))
+	if w.cleanerCancel != nil {
+		w.cleanerCancel(fmt.Errorf("stopping watchdog"))
+	}
 
 	w.log.Info("stopping watchdog")
 
@@ -615,74 +622,197 @@ func (w *Watchdog) removeTransferFromSchedulers(it proto.IncompleteTransfer) err
 }
 
 func (w *Watchdog) CleanupETCD() error {
-	// get the oldest compact revision key
-	oldestKV, currRev, err := w.em.GetOldestTransfersRev()
-	if err != nil {
-		return fmt.Errorf("failed to get oldest revision from etcd: %v", err)
-	}
-
-	if oldestKV.CreateRevision == currRev {
-		// we're already compacted to the latest revision so no need for cleanup
-		return nil
-	}
-
-	// get what events happened at this revision
-	evs, err := w.em.GetModifiedKeysAtRev(oldestKV.CreateRevision)
-	if err != nil {
-		return fmt.Errorf("failed to get modified keys at rev[%v]: %v", oldestKV.CreateRevision, err)
-	}
-
-	// check if each key is part of a transfer
-	// if it is, check if that transfer is still active and its archive status
-	// if it is a lone key, log it and delete it
-	for _, ev := range evs {
-		id, _, err := proto.ParseETCDTransfersKey(string(ev.Kv.Key))
+	for i := 0; i < maxCleanupPerPass; i++ {
+		oldestKV, currRev, err := w.em.GetOldestTransfersRev()
 		if err != nil {
-			return fmt.Errorf("failed to parse transfer id from transfers key during cleanup: %v", err)
+			return fmt.Errorf("failed to get oldest revision from etcd: %v", err)
 		}
 
-		t, pErr, err := w.em.GetTransfer(id)
+		if oldestKV == nil || oldestKV.CreateRevision >= currRev {
+			return nil
+		}
+
+		var retry bool
+
+		key := string(oldestKV.Key)
+
+		switch {
+		case strings.HasPrefix(key, proto.JobsPrefix):
+			retry, err = w.cleanupAuxKey(oldestKV, proto.JobsPrefix, "job")
+
+		case strings.HasPrefix(key, proto.LeasePrefix):
+			retry, err = w.cleanupAuxKey(oldestKV, proto.LeasePrefix, "lease")
+
+		case strings.HasPrefix(key, proto.TransferPrefix):
+			retry, err = w.cleanupTransferKey(oldestKV)
+
+		default:
+			return fmt.Errorf("unexpected key returned as oldest conduit key: %q", key)
+		}
+
 		if err != nil {
-			switch pErr {
-			case proto.Error_ERROR_CONDUIT_INTERNAL:
-				// if there is a failure to parse the transfer, lets log and delete this key
-				w.log.Warnf("error while parsing transfer from key. deleting key from etcd: %v", string(ev.Kv.Key))
-				_, err := w.em.Delete(string(ev.Kv.Key))
-				if err != nil {
-					return fmt.Errorf("failed to delete key[%v] from etcd: %v", string(ev.Kv.Key), err)
-				}
-
-				continue
-
-			case proto.Error_ERROR_ETCD_CONNECTION:
-				return fmt.Errorf("failed to get transfer from etcd: %v", err)
-			}
+			return err
 		}
 
-		// there is a transfer in etcd
-		if !t.GetActive() {
-			delete := false
-			switch {
-			case t.GetState() == proto.TransferState_TRANSFER_NONE:
-				// the transfer state is none which could mean this is a lone key in etcd. log and delete it
-				delete = true
-				w.log.Warnf("Transfer state in etcd is NONE. deleting key from etcd: %v = %v", string(ev.Kv.Key), string(ev.Kv.Value))
-			case t.GetArchiveState() == proto.ArchiveState_ARCHIVE_NONE:
-				// the archive state is none which could mean this is a lone key in etcd. log and delete it
-				delete = true
-				w.log.Warnf("Archive state in etcd is NONE. deleting key from etcd: %v", string(ev.Kv.Key))
-			}
-
-			if delete {
-				_, err := w.em.DeleteTransfer(id)
-				if err != nil {
-					return fmt.Errorf("failed to delete key[%v] from etcd: %v", string(ev.Kv.Key), err)
-				}
-
-				continue
-			}
+		if !retry {
+			// This is a legitimate live key, so it really is our
+			// current safe compaction boundary.
+			return nil
 		}
 	}
+
+	w.log.Warnf("etcd cleanup reached maximum of %d keys in one pass", maxCleanupPerPass)
 
 	return nil
+}
+
+func (w *Watchdog) cleanupTransferKey(kv *mvccpb.KeyValue) (bool, error) {
+	key := string(kv.Key)
+
+	id, _, err := proto.ParseETCDTransfersKey(key)
+	if err != nil {
+		w.log.Warnf("deleting malformed transfer key[%s]: %v", key, err)
+		return w.deleteKVIfUnchanged(kv)
+	}
+
+	it := proto.IncompleteTransfer(&proto.TransferDetails{
+		TransferID: id.String(),
+	})
+
+	// Expiry keys are known to occasionally be left behind after the
+	// rest of a transfer is removed. If there is no state key, this
+	// expiry cannot belong to a valid transfer.
+	if key == it.ETCDExpiryKey() {
+		stateResp, err := w.em.Get(it.ETCDStateKey())
+		if err != nil {
+			return false, fmt.Errorf("failed checking transfer state for expiry key[%s]: %v", key, err)
+		}
+
+		if len(stateResp.Kvs) == 0 {
+			w.log.Warnf("deleting orphaned expiry key[%s]: transfer does not exist", key)
+
+			return w.deleteKVIfUnchanged(kv, clientv3.Compare(clientv3.CreateRevision(it.ETCDStateKey()), "=", 0))
+		}
+	}
+
+	active, err := w.em.GetActive(it)
+	if err != nil {
+		// Missing/corrupt transfer data is ambiguous. Don't immediately
+		// destroy a potentially half-submitted transfer.
+		return false, nil
+	}
+
+	if active {
+		// Legitimate live transfer. This is the safe compaction boundary.
+		return false, nil
+	}
+
+	archiveState, _, err := w.em.GetTransferArchiveState(it)
+	if err != nil {
+		return false, nil
+	}
+
+	switch archiveState {
+	case proto.ArchiveState_ARCHIVE_NONE:
+		successful, _, err := w.em.SafelySetTransferArchiveState(it, proto.ArchiveState_ARCHIVE_NONE, proto.ArchiveState_ARCHIVE_READY)
+		if err != nil {
+			return false, err
+		}
+
+		if successful {
+			w.log.Warnf("repaired inactive transfer[%s] to ARCHIVE_READY", id)
+		} else {
+			w.log.Debugf("archive state for inactive transfer[%s] changed while cleaner was inspecting it", id)
+		}
+
+		// In either case, re-read the current oldest key/state.
+		return true, nil
+
+	case proto.ArchiveState_ARCHIVE_READY:
+		// Archiver owns this transfer.
+		return false, nil
+
+	default:
+		return false, nil
+	}
+}
+
+func (w *Watchdog) cleanupAuxKey(kv *mvccpb.KeyValue, prefix string, name string) (bool, error) {
+	key := string(kv.Key)
+	idString := strings.TrimPrefix(key, prefix)
+
+	// These top-level keys should be exactly <prefix>/<uuid>.
+	if idString == "" || strings.Contains(idString, "/") {
+		w.log.Warnf("deleting malformed %s key[%s]", name, key)
+		return w.deleteKVIfUnchanged(kv)
+	}
+
+	id, err := uuid.Parse(idString)
+	if err != nil {
+		w.log.Warnf("deleting malformed %s key[%s]: invalid transfer id: %v", name, key, err)
+		return w.deleteKVIfUnchanged(kv)
+	}
+
+	it := proto.IncompleteTransfer(&proto.TransferDetails{
+		TransferID: id.String(),
+	})
+
+	stateResp, err := w.em.Get(it.ETCDStateKey())
+	if err != nil {
+		return false, fmt.Errorf("failed checking transfer for %s key[%s]: %v", name, key, err)
+	}
+
+	if len(stateResp.Kvs) == 0 {
+		w.log.Warnf("deleting orphaned %s key[%s]: transfer does not exist", name, key)
+
+		return w.deleteKVIfUnchanged(kv, clientv3.Compare(clientv3.CreateRevision(it.ETCDStateKey()), "=", 0))
+	}
+
+	activeResp, err := w.em.Get(it.ETCDActiveKey())
+	if err != nil {
+		return false, fmt.Errorf("failed checking active state for %s key[%s]: %v", name, key, err)
+	}
+
+	if len(activeResp.Kvs) > 0 &&
+		string(activeResp.Kvs[0].Value) == strconv.FormatBool(false) {
+
+		w.log.Warnf("deleting stale %s key[%s]: transfer is inactive", name, key)
+
+		return w.deleteKVIfUnchanged(kv, clientv3.Compare(clientv3.Value(it.ETCDActiveKey()), "=", strconv.FormatBool(false)))
+	}
+
+	// Legitimate job/lease. This revision really must remain available.
+	return false, nil
+}
+
+func (w *Watchdog) deleteKVIfUnchanged(kv *mvccpb.KeyValue, compares ...clientv3.Cmp) (bool, error) {
+	key := string(kv.Key)
+
+	compares = append(
+		[]clientv3.Cmp{
+			clientv3.Compare(clientv3.ModRevision(key), "=", kv.ModRevision),
+		},
+		compares...,
+	)
+
+	txn, cancel := w.em.Txn()
+	defer cancel()
+
+	resp, err := txn.If(compares...).Then(
+		clientv3.OpDelete(key),
+	).Commit()
+
+	if err != nil {
+		return false, err
+	}
+
+	if resp.Succeeded {
+		w.log.Warnf("deleted stale etcd key[%s]", key)
+	} else {
+		w.log.Debugf("etcd key[%s] or its cleanup conditions changed while cleaner was inspecting it", key)
+	}
+
+	// Whether it was deleted or one of the predicates changed,
+	// re-evaluate the oldest key.
+	return true, nil
 }
