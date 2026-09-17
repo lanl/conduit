@@ -32,11 +32,6 @@ filesystems:
     custom-plugin-config:
       # the posix plugin allows for moving sources to a trash location instead of removing during teardown
       posix-src-trash: ""
-fta:
-  # number of retries conduit-fta will do when trying to set values in etcd. Useful if etcd slows when overwhelmed
-  verify-retry-count: 20
-  # duration between failed etcd request retries
-  verify-sleep-duration: 5s
 plugins:
   pftool:
     # path to pfcp binary
