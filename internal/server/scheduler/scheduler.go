@@ -159,11 +159,10 @@ func (s *Scheduler) StartScheduler() error {
 
 		con, err := grpc.NewClient(addr, opts...)
 		if err != nil {
-			s.log.Errorf("Error: %v", err)
-			return fmt.Errorf("failed to create grpc client for node[%v]:%v", name, err)
+			return fmt.Errorf("failed to create grpc client for node[%v]: %v", name, err)
 		}
 		client := proto.NewConduitRunnerApiClient(con)
-		s.log.Debugf("Successfully dialed to: %v", addr)
+		s.log.Debugf("created grpc client for node[%s] at %s", name, addr)
 
 		// retrieving information about the nodes so the scheduler can connect to the client
 		node := new(NodeInfo)
@@ -675,10 +674,8 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) (wasConnected b
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	s.nodeInfoLock.RLock()
 	// listens for updates on stream regarding the current status of the node
-	stream, err := ni.client.GetNodeStatusStream(ctx, &emptypb.Empty{}, grpc.WaitForReady(true))
-	s.nodeInfoLock.RUnlock()
+	stream, err := ni.client.GetNodeStatusStream(ctx, &emptypb.Empty{})
 
 	if err != nil {
 		return false, fmt.Errorf("failed to get node status stream: %v", err)
@@ -719,13 +716,6 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) (wasConnected b
 			return wasConnected, ctx.Err()
 
 		case err := <-errCh:
-			// Error or EOF from Recv
-			if err == io.EOF {
-				s.log.Error("node[%v] stream closed by server", ni.Name)
-			} else {
-				s.log.Errorf("Received error from node[%v] stream: %v", ni.Name, err)
-			}
-
 			// error from the node stream,set available memory to zero, wait 5 seconds, then try reconnecting
 			s.nodeInfoLock.Lock()
 			s.nodeInfo[nodeName].Memory = 0
@@ -738,7 +728,10 @@ func (s *Scheduler) connectToNode(ni *NodeInfo, nodeName string) (wasConnected b
 			return wasConnected, fmt.Errorf("received error from node[%v] stream: %v", ni.Name, err)
 
 		case res := <-msgCh:
-			wasConnected = true
+			if !wasConnected {
+				s.log.Infof("connected to node[%s]", nodeName)
+				wasConnected = true
+			}
 
 			if !timer.Stop() {
 				// Drain timer channel if it already fired
