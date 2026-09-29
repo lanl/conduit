@@ -148,7 +148,7 @@ services:
 
   zitadel-login:
     image: ghcr.io/zitadel/zitadel-login:v4.15.1
-    container_name: zitadel_login
+    container_name: zitadel-login
     restart: unless-stopped
     user: "0"
     depends_on:
@@ -176,6 +176,38 @@ services:
     networks:
       docker_conduit:
         ipv4_address: 192.168.20.167
+
+  litellm:
+    image: docker.litellm.ai/berriai/litellm:latest
+    container_name: litellm
+    # ports:
+    #   - "4000:4000"
+    environment:
+      LITELLM_MASTER_KEY: sk-d04pOdL1FaSgDak3T0nA
+      LITELLM_SALT_KEY: sk-Ukh2gb0DRuNxZ2RLxJ1V
+      DATABASE_URL: postgresql://litellm:litellm@litellm-db:5432/litellm
+      STORE_MODEL_IN_DB: "True"
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+    networks:
+      docker_conduit:
+        ipv4_address: 192.168.20.168
+
+  litellm-db:
+    image: postgres:16
+    container_name: litellm-db
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+      POSTGRES_DB: litellm
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - /etc/conduit-mcp/litellm/postgres_data:/var/lib/postgresql/data
 
 networks:
   docker_conduit:
