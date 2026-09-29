@@ -1001,42 +1001,39 @@ function slurm_bb_data_out(job_id, job_script, uid, gid, job_info)
 			local done, output = exec_cmd(cmd, args)
 			-- make sure we get back a transferID that's a string
 			if type(output) ~= "string" then
-				slurm.log_debug(string.format("%s: slurm_bb_data_out(), jobIndex=%s, output=%s : failed to run transfer command", lua_script_name, j.jobIndex, tostring(output)))
-				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid output: " .. tostring(output)
-			end
+				slurm.log_error("%s: slurm_bb_data_out(), jobIndex=%s, output=%s : failed to run transfer command", lua_script_name, j.jobIndex, tostring(output))
+			else
+				local transferID = Extract_uuid(output)
 
-			local transferID = Extract_uuid(output)
+				if done == false then
+					slurm.log_debug(string.format("%s: slurm_bb_data_out(), jobIndex=%s, output=%s : failed to run transfer command", lua_script_name, j.jobIndex, tostring(output)))
 
-			if done == false then
-				slurm.log_debug(string.format("%s: slurm_bb_data_out(), jobIndex=%s, output=%s : failed to run transfer command", lua_script_name, j.jobIndex, tostring(output)))
+					local response = "transfer failed for directive " .. j.jobIndex .. ": " .. output
 
-				local response = "transfer failed for directive " .. j.jobIndex .. ": " .. output
+					if Is_uuid(transferID) then
+						j.transferID = transferID
 
-				if Is_uuid(transferID) then
-					j.transferID = transferID
+						local eCmd, eArgs = j:errorCmd()
+						local emCmd, emArgs = j:errorMessageCmd()
+						local errDone, err = exec_cmd(eCmd, eArgs)
+						local errMessageDone, errMessage = exec_cmd(emCmd, emArgs)
 
-					local eCmd, eArgs = j:errorCmd()
-					local emCmd, emArgs = j:errorMessageCmd()
-					local errDone, err = exec_cmd(eCmd, eArgs)
-					local errMessageDone, errMessage = exec_cmd(emCmd, emArgs)
+						slurm.log_debug(string.format("%s: slurm_bb_data_out(), errDone=[%s], err=[%s]", lua_script_name, tostring(errDone), tostring(err)))
+						slurm.log_debug(string.format("%s: slurm_bb_data_out(), errMessageDone=[%s], errMessage=[%s]", lua_script_name, tostring(errMessageDone), tostring(errMessage)))
 
-					slurm.log_debug(string.format("%s: slurm_bb_data_out(), errDone=[%s], err=[%s]", lua_script_name, tostring(errDone), tostring(err)))
-					slurm.log_debug(string.format("%s: slurm_bb_data_out(), errMessageDone=[%s], errMessage=[%s]", lua_script_name, tostring(errMessageDone), tostring(errMessage)))
-
-					if errDone == true and errMessageDone == true then
-						response = response .. ": " .. err .. " " .. errMessage
+						if errDone == true and errMessageDone == true then
+							response = response .. ": " .. err .. " " .. errMessage
+						end
 					end
+
+					response = response .. ": " .. table.concat(j.userArgs, " ")
+					slurm.log_error("%s: slurm_bb_data_out(): %s", lua_script_name, response)
+				elseif not Is_uuid(transferID) then
+					slurm.log_error("%s: slurm_bb_data_out(): failed to run transfer command for directive %s received invalid transferID: %s", lua_script_name, j.jobIndex, tostring(output))
+				else
+					j.transferID = transferID
 				end
-
-				response = response .. ": " .. table.concat(j.userArgs, " ")
-				return slurm.ERROR, response
 			end
-
-			if not Is_uuid(transferID) then
-				return slurm.ERROR, "failed to run transfer command for directive " .. j.jobIndex .. " received invalid transferID: " .. tostring(output)
-			end
-
-			j.transferID = transferID
 		end
 	end
 
@@ -1069,19 +1066,25 @@ function slurm_bb_test_data_out(job_id, job_script, uid, gid, job_info)
 		return slurm.ERROR, "failed to parse directives: " .. err
 	end
 
+	local transfer_errors = {}
+
 	-- get transferIDs from conduit and attach them to their respective job
-	for i, j in pairs(conduit_jobs) do
+	for i, j in ipairs(conduit_jobs) do
 		if j.jobType == CONDUIT_POST then
 			local transferID, err = j:getTransferIDFromConduit()
+
 			if err ~= "" then
-				return slurm.ERROR, "failed to get transfer ID for directive " .. j.jobIndex .. " " .. err
+				transfer_errors[#transfer_errors + 1] = "failed to get transfer ID for directive " .. j.jobIndex .. " " .. err
+			else
+				conduit_jobs[i].transferID = transferID
 			end
-			conduit_jobs[i].transferID = transferID
 		end
 	end
 
-	for i, j in pairs(conduit_jobs) do
-		if j.jobType == CONDUIT_POST then
+	local busy = false
+
+	for i, j in ipairs(conduit_jobs) do
+		if j.jobType == CONDUIT_POST and j.transferID ~= "" then
 			local cmd, args = j:stateCmd()
 			slurm.log_debug("cmd: %s %s", cmd, table.concat(args, " "))
 			local done, state = exec_cmd(cmd, args)
@@ -1090,34 +1093,49 @@ function slurm_bb_test_data_out(job_id, job_script, uid, gid, job_info)
 			if done == false then
 				slurm.log_error(string.format("%s: slurm_bb_test_data_out(), jobIndex=%s, output=%s : failed to get transfer state", lua_script_name, j.jobIndex, tostring(state)))
 
-				local response = "failed to get state for directive " .. j.jobIndex
-				return slurm.ERROR, response
-			end
+				transfer_errors[#transfer_errors + 1] = "failed to get state for directive " .. j.jobIndex
 
-
-			-- make sure we get back a state that's a string
-			if type(state) ~= type("") then
+				-- make sure we get back a state that's a string
+			elseif type(state) ~= type("") then
 				slurm.log_error(string.format("%s: slurm_bb_test_data_out(), jobIndex=%s, output=%s : failed to get transfer state", lua_script_name, j.jobIndex, tostring(state)))
-				return slurm.ERROR, "failed to run transfer status command for directive " .. j.jobIndex .. " received invalid transfer state: " .. tostring(state)
-			end
-			state = string.gsub(state, "%s", "")
-			state = string.gsub(state, "\"", "")
+				transfer_errors[#transfer_errors + 1] = "failed to run transfer status command for directive " .. j.jobIndex .. " received invalid transfer state: " .. tostring(state)
+			else
+				state = string.gsub(state, "%s", "")
+				state = string.gsub(state, "\"", "")
 
-			if state ~= "TRANSFER_ERROR" and state ~= "TRANSFER_FINALIZED" and state ~= "TRANSFER_ABORT" and state ~= "TRANSFER_ABORTED" then
-				return slurm.SUCCESS, slurm.SLURM_BB_BUSY
-			elseif state == "TRANSFER_ERROR" or state == "TRANSFER_ABORT" or state == "TRANSFER_ABORTED" then
-				local response = "transfer failed for directive " .. j.jobIndex
+				if state ~= "TRANSFER_ERROR"
+					and state ~= "TRANSFER_FINALIZED"
+					and state ~= "TRANSFER_ABORT"
+					and state ~= "TRANSFER_ABORTED" then
+					busy = true
+				elseif state == "TRANSFER_ERROR"
+					or state == "TRANSFER_ABORT"
+					or state == "TRANSFER_ABORTED" then
+					local response = "transfer failed for directive " .. j.jobIndex
 
-				local errDone, err = exec_cmd(j:errorCmd())
-				local errMessageDone, errMessage = exec_cmd(j:errorMessageCmd())
+					local errDone, err = exec_cmd(j:errorCmd())
+					local errMessageDone, errMessage = exec_cmd(j:errorMessageCmd())
 
-				if errDone == true and errMessageDone == true then
-					response = response .. ": " .. err .. " " .. errMessage
+					if errDone == true and errMessageDone == true then
+						response = response .. ": " .. err .. " " .. errMessage
+					end
+
+					response = response .. ": " .. table.concat(j.userArgs, " ")
+
+					slurm.log_error("%s: slurm_bb_test_data_out(): %s", lua_script_name, response)
+
+					transfer_errors[#transfer_errors + 1] = response
 				end
-				response = response .. ": " .. table.concat(j.userArgs, " ")
-				return slurm.ERROR, response
 			end
 		end
+	end
+
+	if busy then
+		return slurm.SUCCESS, slurm.SLURM_BB_BUSY
+	end
+
+	if #transfer_errors > 0 then
+		return slurm.ERROR, table.concat(transfer_errors, "\n")
 	end
 
 	return slurm.SUCCESS, ""

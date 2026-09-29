@@ -6,7 +6,7 @@ conduit:
   ca: ""
   ip: conduit-server.example.com
   port: 23456
-  request-timeout: 5s
+  request-timeout: 30s
 debug: false
 krb:
   cache: /tmp
