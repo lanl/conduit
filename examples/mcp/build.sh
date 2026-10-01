@@ -15,26 +15,35 @@ echo "SCRIPT_DIR:$SCRIPT_DIR"
 mkdir -p "$MCP_DOCKER_PATH"
 mkdir -p "$MCP_DOCKER_PATH/zitadel/postgres"
 mkdir -p "$MCP_DOCKER_PATH/zitadel/bootstrap"
+mkdir -p "$MCP_DOCKER_PATH/litellm/postgres_data"
 mkdir -p "$MCP_DOCKER_PATH/generated"
 
 # Compose env_file entries must exist before docker compose reads the file.
 touch "$MCP_DOCKER_PATH/generated/openwebui.env"
 touch "$MCP_DOCKER_PATH/generated/conduit-mcp.env"
+touch "$MCP_DOCKER_PATH/generated/litellm.env"
 
 chmod 700 "$MCP_DOCKER_PATH/generated"
 chmod 600 "$MCP_DOCKER_PATH/generated/"*.env
 
-# Generate a stable stack .env only once.
+# Generate stable stack secrets only once.
 if [ ! -f "${SCRIPT_DIR}/.env" ]; then
 	umask 077
+
 	cat > "${SCRIPT_DIR}/.env" <<EOF
 ZITADEL_VERSION=v4.15.1
 ZITADEL_MASTERKEY=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 32)
 ZITADEL_POSTGRES_PASSWORD=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 32)
 ZITADEL_ADMIN_USERNAME=admin
 ZITADEL_ADMIN_EMAIL=admin@example.com
-ZITADEL_ADMIN_PASSWORD=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 24)
+ZITADEL_ADMIN_PASSWORD="Aa1!$(tr -dc A-Za-z0-9 </dev/urandom | head -c 20)"
+
+LITELLM_MASTER_KEY=sk-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 48)
+LITELLM_SALT_KEY=sk-$(tr -dc A-Za-z0-9 </dev/urandom | head -c 48)
+LITELLM_POSTGRES_PASSWORD=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 32)
 EOF
+
+	chmod 600 "${SCRIPT_DIR}/.env"
 fi
 
 cd "$SCRIPT_DIR"

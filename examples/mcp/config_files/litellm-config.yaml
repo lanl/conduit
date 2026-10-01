@@ -1,0 +1,29 @@
+general_settings:
+  store_model_in_db: true
+
+mcp_servers:
+  conduit:
+    url: "http://conduit-mcp:8081/mcp"
+    transport: "http"
+    description: "Conduit MCP server"
+
+    auth_type: oauth2
+    oauth2_flow: authorization_code
+
+    # Conduit does not expose the OAuth metadata LiteLLM needs,
+    # so LiteLLM publishes it for this gateway endpoint.
+    per_server_oauth_discovery: true
+
+    # Admin-managed ZITADEL OAuth application.
+    client_id: os.environ/LITELLM_CONDUIT_OAUTH_CLIENT_ID
+    client_secret: os.environ/LITELLM_CONDUIT_OAUTH_CLIENT_SECRET
+
+    authorization_url: "https://zitadel.home.arpa/oauth/v2/authorize"
+    token_url: "https://zitadel.home.arpa/oauth/v2/token"
+
+    scopes:
+      - openid
+      - profile
+      - email
+      - offline_access
+      - os.environ/LITELLM_CONDUIT_AUDIENCE_SCOPE

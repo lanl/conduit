@@ -69,32 +69,54 @@ install_caddy_root_ca() {
 
 cd "$SCRIPT_DIR"
 
-# Start Caddy first so its internal CA root exists.
+# Caddy must start first because it generates the internal CA used by
+# ZITADEL, Open WebUI, and LiteLLM.
 $DOCKER_COMPOSE up -d --force-recreate caddy
 
 install_caddy_root_ca
 
-# Start only ZITADEL first. The other services need generated client IDs/secrets.
+# ZITADEL must exist before we can create OAuth clients.
 $DOCKER_COMPOSE up -d --force-recreate zitadel-db zitadel zitadel-login
 
 wait_for_file "$MCP_DOCKER_PATH/zitadel/bootstrap/admin.pat"
 wait_for_url "https://zitadel.home.arpa/.well-known/openid-configuration"
 
+# Creates the Open WebUI, Conduit MCP, and LiteLLM OAuth applications
+# and writes their generated environment files.
 "${SCRIPT_DIR}/bootstrap-zitadel.sh"
 
-wait_for_url "https://zitadel.home.arpa/.well-known/openid-configuration"
+wait_for_file "$MCP_DOCKER_PATH/generated/openwebui.env"
+wait_for_file "$MCP_DOCKER_PATH/generated/conduit-mcp.env"
+wait_for_file "$MCP_DOCKER_PATH/generated/litellm.env"
 
-# Start downstream services. Do not recreate caddy/zitadel here.
+# Start the protected resource before LiteLLM attempts to use it.
 $DOCKER_COMPOSE up -d --force-recreate conduit-mcp
+
+# LiteLLM now has its generated ZITADEL client credentials.
+$DOCKER_COMPOSE up -d --force-recreate litellm-db litellm
+
+wait_for_url "https://litellm.home.arpa/health/liveliness"
+
+# Start clients last.
 $DOCKER_COMPOSE up -d --force-recreate openwebui
 
-MCP_SETUP_FILE="/etc/conduit-mcp/generated/openwebui-mcp-setup.txt"
+MCP_SETUP_FILE="$MCP_DOCKER_PATH/generated/openwebui-mcp-setup.txt"
 
 echo
+
 if [ -s "$MCP_SETUP_FILE" ]; then
 	cat "$MCP_SETUP_FILE"
 else
 	echo "Open WebUI MCP setup information was not generated." >&2
 	echo "Expected file: $MCP_SETUP_FILE" >&2
 fi
+
+echo
+echo "LiteLLM:"
+echo
+echo "  URL: https://litellm.home.arpa/ui"
+echo
+echo "  Username: admin"
+echo
+echo "  Password: see LITELLM_MASTER_KEY in ${SCRIPT_DIR}/.env"
 echo

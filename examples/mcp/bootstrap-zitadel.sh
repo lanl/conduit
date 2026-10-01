@@ -186,6 +186,46 @@ PROJECT_BODY="$(jq -n '{
 PROJECT_JSON="$(api_post "/projects" "$PROJECT_BODY")"
 PROJECT_ID="$(json_field "$PROJECT_JSON" '.id')"
 
+AUD_SCOPE="urn:zitadel:iam:org:project:id:${PROJECT_ID}:aud"
+
+LITELLM_URL="https://litellm.home.arpa"
+LITELLM_CALLBACK_URI="${LITELLM_URL}/callback"
+
+echo "Creating LiteLLM Conduit MCP OIDC app..."
+
+LITELLM_OIDC_BODY="$(jq -n \
+  --arg redirect_uri "$LITELLM_CALLBACK_URI" \
+  '{
+    name: "litellm-conduit-mcp",
+    redirectUris: [$redirect_uri],
+    responseTypes: ["OIDC_RESPONSE_TYPE_CODE"],
+    grantTypes: [
+      "OIDC_GRANT_TYPE_AUTHORIZATION_CODE",
+      "OIDC_GRANT_TYPE_REFRESH_TOKEN"
+    ],
+    appType: "OIDC_APP_TYPE_WEB",
+    authMethodType: "OIDC_AUTH_METHOD_TYPE_BASIC",
+    version: "OIDC_VERSION_1_0",
+    devMode: false,
+    accessTokenType: "OIDC_TOKEN_TYPE_BEARER",
+    accessTokenRoleAssertion: true,
+    idTokenRoleAssertion: false,
+    idTokenUserinfoAssertion: true,
+    clockSkew: "0s"
+  }')"
+
+LITELLM_OIDC_JSON="$(
+	api_post "/projects/${PROJECT_ID}/apps/oidc" "$LITELLM_OIDC_BODY"
+)"
+
+LITELLM_CONDUIT_OAUTH_CLIENT_ID="$(
+	json_field "$LITELLM_OIDC_JSON" '.clientId'
+)"
+
+LITELLM_CONDUIT_OAUTH_CLIENT_SECRET="$(
+	json_field "$LITELLM_OIDC_JSON" '.clientSecret'
+)"
+
 echo "Creating Open WebUI OIDC app..."
 OPENWEBUI_BODY="$(jq -n '{
   name: "openwebui",
@@ -272,9 +312,13 @@ USER_BODY="$(jq -n \
 USER_JSON="$(api_post "/users/human" "$USER_BODY")"
 DEMO_USER_ID="$(json_field "$USER_JSON" '.userId')"
 
-AUD_SCOPE="urn:zitadel:iam:org:project:id:${PROJECT_ID}:aud"
-
 umask 077
+
+cat > "$MCP_DOCKER_PATH/generated/litellm.env" <<EOF
+LITELLM_CONDUIT_OAUTH_CLIENT_ID=${LITELLM_CONDUIT_OAUTH_CLIENT_ID}
+LITELLM_CONDUIT_OAUTH_CLIENT_SECRET=${LITELLM_CONDUIT_OAUTH_CLIENT_SECRET}
+LITELLM_CONDUIT_AUDIENCE_SCOPE=${AUD_SCOPE}
+EOF
 
 cat > "$MCP_DOCKER_PATH/generated/openwebui.env" <<EOF
 ENABLE_OAUTH_SIGNUP=true
@@ -308,6 +352,9 @@ DEMO_USER_ID=${DEMO_USER_ID}
 DEMO_USERNAME=${DEMO_USERNAME}
 DEMO_EMAIL=${DEMO_EMAIL}
 DEMO_PASSWORD=${DEMO_PASSWORD}
+LITELLM_CONDUIT_OAUTH_CLIENT_ID=${LITELLM_CONDUIT_OAUTH_CLIENT_ID}
+LITELLM_CONDUIT_OAUTH_CLIENT_SECRET=${LITELLM_CONDUIT_OAUTH_CLIENT_SECRET}
+LITELLM_CONDUIT_AUDIENCE_SCOPE=${AUD_SCOPE}
 EOF
 
 cat > "$MCP_SETUP_FILE" <<EOF
