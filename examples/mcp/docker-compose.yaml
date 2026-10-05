@@ -76,7 +76,7 @@ services:
     environment:
       POSTGRES_DB: zitadel
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${ZITADEL_POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: 4dCh268eXfZUSuJOOOXCYG2EcTzkgJA7
     volumes:
       - /etc/conduit-mcp/zitadel/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -94,10 +94,7 @@ services:
     container_name: zitadel
     restart: unless-stopped
     user: "0"
-    command:
-      - start-from-init
-      - --masterkey
-      - ${ZITADEL_MASTERKEY}
+    command: start-from-init --masterkey "x80OtZxUDwobNrCMkQYlGUWa1iGOZrAs"
     depends_on:
       zitadel-db:
         condition: service_healthy
@@ -108,14 +105,14 @@ services:
       ZITADEL_EXTERNALSECURE: true
       ZITADEL_TLS_ENABLED: false
 
-      ZITADEL_DATABASE_POSTGRES_DSN: postgresql://postgres:${ZITADEL_POSTGRES_PASSWORD}@zitadel-db:5432/zitadel?sslmode=disable
+      ZITADEL_DATABASE_POSTGRES_DSN: postgresql://postgres:4dCh268eXfZUSuJOOOXCYG2EcTzkgJA7@zitadel-db:5432/zitadel?sslmode=disable
 
       ZITADEL_ACCESS_LOG_STDOUT_ENABLED: true
 
       ZITADEL_FIRSTINSTANCE_ORG_NAME: Conduit
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: ${ZITADEL_ADMIN_USERNAME}
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: ${ZITADEL_ADMIN_PASSWORD}
-      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS: ${ZITADEL_ADMIN_EMAIL}
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: qMRW%g*qi3sZE65x6wiK
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS: admin@example.com
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED: true
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_FIRSTNAME: Conduit
       ZITADEL_FIRSTINSTANCE_ORG_HUMAN_LASTNAME: Admin
@@ -151,7 +148,7 @@ services:
 
   zitadel-login:
     image: ghcr.io/zitadel/zitadel-login:v4.15.1
-    container_name: zitadel-login
+    container_name: zitadel_login
     restart: unless-stopped
     user: "0"
     depends_on:
@@ -179,58 +176,6 @@ services:
     networks:
       docker_conduit:
         ipv4_address: 192.168.20.167
-
-  litellm:
-    env_file:
-      - /etc/conduit-mcp/generated/litellm.env
-    image: docker.litellm.ai/berriai/litellm:latest
-    container_name: litellm
-    restart: unless-stopped
-    command:
-      - --config
-      - /app/config.yaml
-    environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY}
-      DATABASE_URL: postgresql://litellm:${LITELLM_POSTGRES_PASSWORD}@litellm-db:5432/litellm
-      # Required so LiteLLM constructs the correct OAuth callback/discovery URLs.
-      PROXY_BASE_URL: https://litellm.home.arpa
-      # Trust Caddy's internal CA when talking to ZITADEL.
-      SSL_CERT_FILE: /etc/ssl/certs/conduit-ca-bundle.pem
-      # Allow Open WebUI to be an OAuth/DCR client of the MCP gateway.
-      MCP_TRUSTED_REDIRECT_ORIGINS: openwebui.home.arpa
-    depends_on:
-      litellm-db:
-        condition: service_healthy
-      conduit-mcp:
-        condition: service_started
-    extra_hosts:
-      - "zitadel.home.arpa:192.168.20.160"
-    volumes:
-      - ./config_files/litellm-config.yaml:/app/config.yaml:ro
-      - /etc/conduit-mcp/openwebui-ca-bundle.pem:/etc/ssl/certs/conduit-ca-bundle.pem:ro
-    networks:
-      docker_conduit:
-        ipv4_address: 192.168.20.168
-
-  litellm-db:
-    image: postgres:16
-    container_name: litellm-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: litellm
-      POSTGRES_PASSWORD: ${LITELLM_POSTGRES_PASSWORD}
-      POSTGRES_DB: litellm
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    volumes:
-      - /etc/conduit-mcp/litellm/postgres_data:/var/lib/postgresql/data
-    networks:
-      docker_conduit:
-        ipv4_address: 192.168.20.169
 
 networks:
   docker_conduit:

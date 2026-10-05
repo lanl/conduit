@@ -31,8 +31,3 @@ zitadel.home.arpa {
         }
     }
 }
-
-litellm.home.arpa {
-    tls internal
-    reverse_proxy 192.168.20.168:4000
-}
