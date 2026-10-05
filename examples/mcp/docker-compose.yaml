@@ -197,6 +197,8 @@ services:
       PROXY_BASE_URL: https://litellm.home.arpa
       # Trust Caddy's internal CA when talking to ZITADEL.
       SSL_CERT_FILE: /etc/ssl/certs/conduit-ca-bundle.pem
+      # Allow Open WebUI to be an OAuth/DCR client of the MCP gateway.
+      MCP_TRUSTED_REDIRECT_ORIGINS: openwebui.home.arpa
     depends_on:
       litellm-db:
         condition: service_healthy

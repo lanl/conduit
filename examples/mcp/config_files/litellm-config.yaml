@@ -7,14 +7,13 @@ mcp_servers:
     transport: "http"
     description: "Conduit MCP server"
 
-    auth_type: oauth2
+    auth_type: oauth_delegate
+    dcr_bridge: true
+
+    # Upstream OAuth used to obtain the actual ZITADEL token
+    # that will be forwarded to conduit-mcp.
     oauth2_flow: authorization_code
 
-    # Conduit does not expose the OAuth metadata LiteLLM needs,
-    # so LiteLLM publishes it for this gateway endpoint.
-    per_server_oauth_discovery: true
-
-    # Admin-managed ZITADEL OAuth application.
     client_id: os.environ/LITELLM_CONDUIT_OAUTH_CLIENT_ID
     client_secret: os.environ/LITELLM_CONDUIT_OAUTH_CLIENT_SECRET
 
@@ -27,3 +26,5 @@ mcp_servers:
       - email
       - offline_access
       - os.environ/LITELLM_CONDUIT_AUDIENCE_SCOPE
+
+    allow_all_keys: false

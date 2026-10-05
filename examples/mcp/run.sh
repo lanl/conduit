@@ -12,6 +12,13 @@ echo "SCRIPT_DIR:$SCRIPT_DIR"
 
 . "${SCRIPT_DIR}/vars.sh"
 
+if [ ! -f "${SCRIPT_DIR}/.env" ]; then
+	echo "Missing ${SCRIPT_DIR}/.env. Run build.sh first." >&2
+	exit 1
+fi
+
+. "${SCRIPT_DIR}/.env"
+
 ROOT_CA="$MCP_DOCKER_PATH/caddy/caddy_data/caddy/pki/authorities/local/root.crt"
 SYSTEM_CA="/usr/local/share/ca-certificates/conduit-caddy-root.crt"
 CONTAINER_CA_BUNDLE="$MCP_DOCKER_PATH/openwebui-ca-bundle.pem"
@@ -112,11 +119,28 @@ else
 fi
 
 echo
+echo "============================================================"
+echo "Conduit MCP example is ready"
+echo "============================================================"
+echo
+echo "ZITADEL:"
+echo "  URL:      https://zitadel.home.arpa"
+echo "  Username: ${ZITADEL_ADMIN_USERNAME}"
+echo "  Email:    ${ZITADEL_ADMIN_EMAIL}"
+echo "  Password: ${ZITADEL_ADMIN_PASSWORD}"
+echo
 echo "LiteLLM:"
-echo
-echo "  URL: https://litellm.home.arpa/ui"
-echo
+echo "  URL:      https://litellm.home.arpa/ui"
 echo "  Username: admin"
+echo "  Password: ${LITELLM_MASTER_KEY}"
 echo
-echo "  Password: see LITELLM_MASTER_KEY in ${SCRIPT_DIR}/.env"
+echo "Open WebUI:"
+echo "  URL:      https://openwebui.home.arpa"
 echo
+echo "Generated configuration:"
+echo "  ${MCP_DOCKER_PATH}/generated/"
+echo
+echo "Stack credentials:"
+echo "  ${SCRIPT_DIR}/.env"
+echo
+echo "============================================================"
