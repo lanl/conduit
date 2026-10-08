@@ -56,3 +56,9 @@ server:
   http:
     allowed-origins:
       - "*"
+    tls:
+      # path to the TLS server certificate (including intermediate certificates if needed)
+      # if both cert and key are empty, the MCP server will use HTTP instead of HTTPS
+      cert: ""
+      # path to the private key for the TLS server certificate
+      key: ""
