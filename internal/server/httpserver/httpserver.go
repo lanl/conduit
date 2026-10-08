@@ -157,24 +157,6 @@ func CreateHTTPServer(log *logger.ConduitLogger, addr string, clientCert *tls.Ce
 		IdleTimeout:       120 * time.Second,
 	}
 
-	certFile := viper.GetString(defaults.ConfigServerHTTPTLSCertKey)
-	keyFile := viper.GetString(defaults.ConfigServerHTTPTLSKeyKey)
-	if certFile != "" || keyFile != "" {
-		if certFile == "" || keyFile == "" {
-			return nil, fmt.Errorf("both TLS certificate and key must be configured")
-		}
-
-		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-		if err != nil {
-			return nil, err
-		}
-
-		h.server.TLSConfig = &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
-		}
-	}
-
 	return h, nil
 }
 
@@ -186,6 +168,22 @@ func (h *HTTPServer) StartHTTPServer(authMode string, certPool *x509.CertPool, s
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{*serverCert},
 		MinVersion:   tls.VersionTLS12,
+	}
+
+	certFile := viper.GetString(defaults.ConfigServerHTTPTLSCertKey)
+	keyFile := viper.GetString(defaults.ConfigServerHTTPTLSKeyKey)
+
+	if certFile != "" || keyFile != "" {
+		if certFile == "" || keyFile == "" {
+			return fmt.Errorf("both TLS certificate and key must be configured")
+		}
+
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return fmt.Errorf("failed to load HTTP TLS certificate: %w", err)
+		}
+
+		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
 	// Configure client certificate requirements based on auth mode

@@ -284,7 +284,14 @@ func (m *MCPServer) StartMCPServer() error {
 	m.log.Infof("Protected resource metadata: %s", m.resourceMetadataURL)
 	m.log.Infof("MCP endpoint: %s", m.resourceURL)
 
-	if err := m.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	var err error
+	if m.httpServer.TLSConfig != nil {
+		err = m.httpServer.ListenAndServeTLS("", "")
+	} else {
+		err = m.httpServer.ListenAndServe()
+	}
+
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("MCP server error: %w", err)
 	}
 
