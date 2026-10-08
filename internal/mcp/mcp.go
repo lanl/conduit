@@ -97,7 +97,7 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 	}
 
 	// Configure TLS with the OAuth CA certificate pool for OAuth discovery
-	tlsConfig := &tls.Config{
+	oauthTLSConfig := &tls.Config{
 		RootCAs:    oauthCertPool,
 		MinVersion: tls.VersionTLS12,
 	}
@@ -108,7 +108,7 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 		ClientSecret:                 clientSecret,
 		UsernameClaims:               usernameClaims,
 		UseUserInfoFallback:          userInfoFallback,
-		TLSConfig:                    tlsConfig,
+		TLSConfig:                    oauthTLSConfig,
 		ViperIntrospectionAuthMethod: introspectionAuthMethod,
 		ExpectedAudience:             viper.GetString(defaults.ConfigOAuthAudienceKey),
 	}, l)
@@ -202,6 +202,24 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 		Handler:           corsHandler,
 		ReadHeaderTimeout: 15 * time.Second,
 		IdleTimeout:       120 * time.Second,
+	}
+
+	certFile := viper.GetString(defaults.ConfigServerHTTPTLSCertKey)
+	keyFile := viper.GetString(defaults.ConfigServerHTTPTLSKeyKey)
+	if certFile != "" || keyFile != "" {
+		if certFile == "" || keyFile == "" {
+			return nil, fmt.Errorf("both TLS certificate and key must be configured")
+		}
+
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return nil, err
+		}
+
+		m.httpServer.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
 	}
 
 	return m, nil

@@ -240,6 +240,8 @@ func createDefaultConfig() {
 	viper.SetDefault(defaults.ConfigServerHTTPPortKey, DefaultHTTPPort)
 	viper.SetDefault(defaults.ConfigServerHTTPAllowedOriginsKey, DefaultAllowedOrigins)
 	viper.SetDefault(defaults.ConfigServerHTTPAuthModeKey, DefaultHTTPAuthMode)
+	viper.SetDefault(defaults.ConfigServerHTTPTLSCertKey, "")
+	viper.SetDefault(defaults.ConfigServerHTTPTLSKeyKey, "")
 
 	viper.SetDefault(defaults.ConfigOAuthUserFallbackKey, defaults.DefaultOAuthUserFallback)
 	viper.SetDefault(defaults.ConfigOAuthUserClaimsKey, defaults.DefaultUsernameClaims)

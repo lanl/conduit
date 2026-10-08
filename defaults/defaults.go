@@ -16,6 +16,8 @@ const (
 	ConfigServerHTTPEnabledKey               = "server.http.enabled"
 	ConfigServerHTTPAllowedOriginsKey        = "server.http.allowed-origins"
 	ConfigServerHTTPAuthModeKey              = "server.http.auth-mode"
+	ConfigServerHTTPTLSCertKey               = "server.http.tls.cert"
+	ConfigServerHTTPTLSKeyKey                = "server.http.tls.key"
 	ConfigServerHostnameKey                  = "server.hostname"
 	ConfigServerSocketDirKey                 = "server.socket-dir"
 	ConfigAuthKeytabKey                      = "auth.keytab"

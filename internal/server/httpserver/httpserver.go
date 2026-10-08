@@ -157,6 +157,24 @@ func CreateHTTPServer(log *logger.ConduitLogger, addr string, clientCert *tls.Ce
 		IdleTimeout:       120 * time.Second,
 	}
 
+	certFile := viper.GetString(defaults.ConfigServerHTTPTLSCertKey)
+	keyFile := viper.GetString(defaults.ConfigServerHTTPTLSKeyKey)
+	if certFile != "" || keyFile != "" {
+		if certFile == "" || keyFile == "" {
+			return nil, fmt.Errorf("both TLS certificate and key must be configured")
+		}
+
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return nil, err
+		}
+
+		h.server.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
+	}
+
 	return h, nil
 }
 
