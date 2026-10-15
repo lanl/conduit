@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,8 @@ import (
 	"github.com/spf13/viper"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/peer"
+	goproto "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -383,4 +386,69 @@ func (s *ConduitServer) getUserFromRequest(ctx context.Context, requestedUser *s
 	err = fmt.Errorf("client cert CN was empty")
 	s.log.Error(err)
 	return "", reqPrivLevel, err
+}
+
+// findDuplicateTransfer returns an existing queued transfer that matches
+// the new transfer, or nil if no duplicate exists.
+func (s *ConduitServer) findDuplicateTransfer(transfer *proto.TransferDetails) *proto.TransferDetails {
+	s.tMutex.RLock()
+	defer s.tMutex.RUnlock()
+
+	for id := range s.usersTransfers[transfer.GetUser()] {
+		existing := s.transfers[id.String()]
+		if existing == nil {
+			continue
+		}
+
+		// Only consider active, non-error transfers that have
+		// not progressed beyond waiting for lease.
+		if !existing.GetActive() ||
+			existing.GetError() != proto.Error_ERROR_NONE ||
+			existing.GetValidationOnly() ||
+			!isPreLeaseState(existing.GetState()) {
+			continue
+		}
+
+		// Compare the actual transfer parameters.
+		if existing.GetAction() != transfer.GetAction() ||
+			existing.GetDestination() != transfer.GetDestination() ||
+			existing.GetPausedState() != transfer.GetPausedState() ||
+			existing.GetComment() != transfer.GetComment() ||
+			!slices.Equal(existing.GetSource(), transfer.GetSource()) ||
+			!equalTransferOptions(existing.GetOptions(), transfer.GetOptions()) {
+			continue
+		}
+
+		return goproto.Clone(existing).(*proto.TransferDetails)
+	}
+
+	return nil
+}
+
+func equalTransferOptions(a, b map[string]*anypb.Any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for key, value := range a {
+		other, ok := b[key]
+		if !ok || !goproto.Equal(value, other) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isPreLeaseState(state proto.TransferState) bool {
+	switch state {
+	case proto.TransferState_TRANSFER_INIT_COMPLETE,
+		proto.TransferState_TRANSFER_VALIDATION_READY,
+		proto.TransferState_TRANSFER_VALIDATION_SUBMITTED,
+		proto.TransferState_TRANSFER_VALIDATION_COMPLETE,
+		proto.TransferState_TRANSFER_WAITING_FOR_LEASE:
+		return true
+	default:
+		return false
+	}
 }
