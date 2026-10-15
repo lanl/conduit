@@ -171,6 +171,12 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 		s.eMutex.RUnlock()
 	}
 
+	// Check whether an identical queued transfer already exists.
+	if existing := s.findDuplicateTransfer(transfer); existing != nil {
+		s.log.Infof("duplicate transfer request from user[%s], returning existing transfer[%s]", user, existing.GetTransferID())
+		return existing, nil
+	}
+
 	if err := s.em.SubmitTransfers([]*proto.TransferDetails{transfer}); err != nil {
 		return nil, fmt.Errorf("failed to submit transfer[%s]: %v", transfer.GetTransferID(), err)
 	}
