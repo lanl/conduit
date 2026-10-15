@@ -19,7 +19,8 @@ RUN apk add --no-cache \
         sudo \
         python3 \
         py3-pip \
-        curl
+        curl \
+        jq
 
 RUN adduser -D -u 1433 testuser \
     && addgroup -g 1434 testgroup \
