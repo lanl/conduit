@@ -11,22 +11,24 @@ local CONDUIT_CLI_CONFIG = "/etc/conduit/conduit-cli-config.yaml"
 local STATIC_FLAGS = { "--cert", CONDUIT_CERT, "--key", CONDUIT_KEY, "--ca", CONDUIT_CA, "--config", CONDUIT_CLI_CONFIG }
 
 
-DIRECTIVE           = "CONDUIT"
-COMMENT_JOB         = "SLURMJOB:"
-COMMENT_INDEX       = "SLURMINDEX:"
-COMMENT_TYPE        = "SLURMTYPE:"
+DIRECTIVE               = "CONDUIT"
+COMMENT_JOB             = "SLURMJOB:"
+COMMENT_INDEX           = "SLURMINDEX:"
+COMMENT_TYPE            = "SLURMTYPE:"
 
 -- conduit types
-CONDUIT_PRE         = DIRECTIVE .. "_PRE"
-CONDUIT_POST        = DIRECTIVE .. "_POST"
+CONDUIT_PRE             = DIRECTIVE .. "_PRE"
+CONDUIT_POST            = DIRECTIVE .. "_POST"
 
 -- =====================
 
-lua_script_name     = "burst_buffer.lua"
+lua_script_name         = "burst_buffer.lua"
 
-local posix         = require("posix")
+local posix             = require("posix")
 
-CONDUIT_JOB         = {
+local BBSTAT_LINE_WIDTH = 120
+
+CONDUIT_JOB             = {
 	jobID = "",   -- the slurm job id
 	jobType = "", -- the type of job (either conduit_in or conduit_out)
 	jobIndex = "", -- the index of the conduit directive in the slurm job script
@@ -35,7 +37,7 @@ CONDUIT_JOB         = {
 	uid = 0,
 	workDir = "",
 }
-CONDUIT_JOB.__index = CONDUIT_JOB
+CONDUIT_JOB.__index     = CONDUIT_JOB
 
 function CONDUIT_JOB:new(jobID, jobType, jobIndex, userArgs, uid, workDir)
 	local job = {}
@@ -252,7 +254,7 @@ local BBSTAT_MAX_TRANSFERS = 100
 local function SlurmIDStateCmd(slurmJobID, uid)
 	local query = SlurmJobCommentPrefix(slurmJobID)
 
-	local jsonpath = '$..["transferID","state","error"]'
+	local jsonpath = '$..["transferID","state","error","errorMessage"]'
 
 	local final_args = {}
 
@@ -1197,6 +1199,10 @@ local function parse_json_string_array(s)
 
 				if e == '"' or e == "\\" or e == "/" then
 					out[#out + 1] = e
+				elseif e == "b" then
+					out[#out + 1] = "\b"
+				elseif e == "f" then
+					out[#out + 1] = "\f"
 				elseif e == "n" then
 					out[#out + 1] = "\n"
 				elseif e == "r" then
@@ -1251,26 +1257,48 @@ local function format_bbstat_rows(status)
 		return "No matching Conduit transfers found"
 	end
 
-	local fields_per_row = 3
+	local fields_per_row = 4
 	if (#values % fields_per_row) ~= 0 then
-		return nil, "expected transfer status fields in groups of 3, received " .. tostring(#values)
+		return nil, "expected transfer status fields in groups of 4, received " .. tostring(#values)
 	end
 
 	local lines = {}
-	lines[#lines + 1] = string.format("%-36s  %-24s  %s", "TRANSFER_ID", "STATE", "ERROR")
+	lines[#lines + 1] = string.format("%-36s  %-24s  %-24s  %s", "TRANSFER_ID", "STATE", "ERROR", "ERROR_MESSAGE")
 
 	for i = 1, #values, fields_per_row do
 		local transfer_id = values[i] or ""
 		local state = values[i + 1] or ""
 		local transfer_error = values[i + 2] or ""
+		local error_message = values[i + 3] or ""
 
-		lines[#lines + 1] = string.format(
-			"%-36s  %-24s  %s",
+		-- Keep error messages on a single line.
+		error_message = error_message:gsub("%c", " "):gsub("%s+", " ")
+		error_message = error_message:match("^%s*(.-)%s*$") or ""
+
+		local prefix = string.format(
+			"%-36s  %-24s  %-24s  ",
 			transfer_id,
 			state,
 			transfer_error
 		)
+
+		-- Use the remaining width for the error message.
+		local available = math.max(0, BBSTAT_LINE_WIDTH - #prefix)
+		if available == 0 then
+			error_message = ""
+		elseif #error_message > available then
+			if available > 3 then
+				error_message = "..." .. error_message:sub(-(available - 3))
+			else
+				error_message = error_message:sub(-available)
+			end
+		end
+
+		lines[#lines + 1] = prefix .. error_message
 	end
+
+
+
 
 	return table.concat(lines, "\n")
 end
