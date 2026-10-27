@@ -4,10 +4,12 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lanl/conduit/api"
 	proto "github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/fta/actions"
@@ -1091,4 +1093,81 @@ func (s *ConduitServer) TransferNotify(notifyRequest *proto.NotifyRequest, strea
 			return stream.Context().Err()
 		}
 	}
+}
+
+func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *proto.ReRunRequest) (*api.MultiTransferDetails, error) {
+	// check if server is shutting down
+	s.ssMutex.RLock()
+	if s.Shutdown {
+		s.ssMutex.RUnlock()
+		return nil, fmt.Errorf("server shutting down")
+	} else {
+		s.ssMutex.RUnlock()
+		s.jobs.Add(1)
+		defer s.jobs.Done()
+	}
+
+	// check for admin privileges
+	_, reqPrivLevel, err := s.getUserFromRequest(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user from request: %v", err)
+	}
+	if reqPrivLevel != privilegedAdmin {
+		return nil, fmt.Errorf("you do not have permission to rerun transfers")
+	}
+
+	s.log.Debugf("received rerun transfer request from admin: %v", reRunRequest.GetTransferIDs())
+
+	// get matching transfers from rqlite
+	transfers, err := s.rm.GetTransfers(reRunRequest.GetTransferIDs())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transfers from rqlite: %v", err)
+	}
+
+	if len(transfers) == 0 {
+		return &proto.MultiTransferDetails{
+			Details: make(map[string]*proto.TransferDetails),
+		}, nil
+	}
+
+	transferIDs := []string{}
+	for _, t := range transfers {
+		transferIDs = append(transferIDs, t.GetTransferID())
+	}
+
+	// remove transfers from rqlite
+	err = s.rm.RemoveTransfers(transferIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to remove transfers[%v] from rqlite: %v", transferIDs, err)
+	}
+
+	var finalError error
+
+	for _, t := range transfers {
+		transfer := proto.NewTransferDetails()
+
+		transfer.State = proto.TransferState_TRANSFER_INIT_COMPLETE
+		transfer.TransferID = t.GetTransferID()
+		transfer.Source = t.GetSource()
+		transfer.Destination = t.GetDestination()
+		transfer.Active = true
+		transfer.User = t.GetUser()
+		transfer.CreatedTime = t.GetCreatedTime()
+		transfer.Comment = t.GetComment()
+		transfer.Action = t.GetAction()
+		transfer.Options = t.GetOptions()
+		transfer.ValidationOnly = t.GetValidationOnly()
+		transfer.Expiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
+		transfer.Warnings = append(transfer.Warnings, fmt.Sprintf("%s (Rerun Transfer)", adminWarning))
+
+		if err := s.em.SubmitTransfers([]*proto.TransferDetails{transfer}); err != nil {
+			errors.Join(finalError, fmt.Errorf("failed to submit transfer[%s]: %v", t.GetTransferID(), err))
+
+			// add original transfer back to rqlite if the submit failed
+			rErr := s.rm.AddTransfer(t)
+			errors.Join(finalError, fmt.Errorf("failed to add transfer[%s] back to rqlite: %v", t.GetTransferID(), rErr))
+		}
+	}
+
+	return &proto.MultiTransferDetails{Details: transfers}, finalError
 }
