@@ -1163,9 +1163,10 @@ func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *api.Re
 				finalError = errors.Join(finalError, fmt.Errorf("failed to restore transfer[%s] to rqlite: %w", t.GetTransferID(), rErr))
 			}
 
-			newTransfers[transfer.GetTransferID()] = transfer
+			continue
 		}
 
+		newTransfers[transfer.GetTransferID()] = transfer
 	}
 
 	return &api.MultiTransferDetails{Details: newTransfers}, finalError
