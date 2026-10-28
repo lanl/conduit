@@ -1130,20 +1130,15 @@ func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *proto.
 		}, nil
 	}
 
-	transferIDs := []string{}
 	for _, t := range transfers {
-		transferIDs = append(transferIDs, t.GetTransferID())
-	}
+		// remove transfer from rqlite
+		err = s.rm.RemoveTransfers([]string{t.GetTransferID()})
+		if err != nil {
+			return nil, fmt.Errorf("failed to remove transfer[%v] from rqlite: %v", t.GetTransferID(), err)
+		}
 
-	// remove transfers from rqlite
-	err = s.rm.RemoveTransfers(transferIDs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to remove transfers[%v] from rqlite: %v", transferIDs, err)
-	}
+		var finalError error
 
-	var finalError error
-
-	for _, t := range transfers {
 		transfer := proto.NewTransferDetails()
 
 		transfer.State = proto.TransferState_TRANSFER_INIT_COMPLETE
@@ -1161,12 +1156,14 @@ func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *proto.
 		transfer.Warnings = append(transfer.Warnings, fmt.Sprintf("%s (Rerun Transfer)", adminWarning))
 
 		if err := s.em.SubmitTransfers([]*proto.TransferDetails{transfer}); err != nil {
-			errors.Join(finalError, fmt.Errorf("failed to submit transfer[%s]: %v", t.GetTransferID(), err))
+			finalError = errors.Join(finalError, fmt.Errorf("failed to submit transfer[%s]: %w", t.GetTransferID(), err))
 
 			// add original transfer back to rqlite if the submit failed
-			rErr := s.rm.AddTransfer(t)
-			errors.Join(finalError, fmt.Errorf("failed to add transfer[%s] back to rqlite: %v", t.GetTransferID(), rErr))
+			if rErr := s.rm.AddTransfer(t); rErr != nil {
+				finalError = errors.Join(finalError, fmt.Errorf("failed to restore transfer[%s] to rqlite: %w", t.GetTransferID(), rErr))
+			}
 		}
+
 	}
 
 	return &proto.MultiTransferDetails{Details: transfers}, finalError
