@@ -630,7 +630,7 @@ func (cc *ConduitClient) ReRunTransfers(ids []string) (*proto.MultiTransferDetai
 
 	response, err := cc.client.ReRunTransfers(ctx, rr, grpc.WaitForReady(true))
 	if err != nil {
-		return nil, fmt.Errorf("failed to send pause request: %v", err)
+		return nil, fmt.Errorf("failed to send rerun request: %v", err)
 	}
 
 	return response, nil
