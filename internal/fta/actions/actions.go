@@ -12,6 +12,7 @@ const (
 	Action_MOVE     = "MOVE"
 	RecursiveFlag   = "recursive"
 	OmitMissingFlag = "omit-missing"
+	ParentsFlag     = "parents"
 )
 
 type PluginAction struct {
@@ -28,6 +29,7 @@ func GetActions() []*PluginAction {
 			Options: map[string]func(*cobra.Command) (*anypb.Any, error){
 				RecursiveFlag:   recursiveOption,
 				OmitMissingFlag: omitMissingOption,
+				ParentsFlag:     parentsOption,
 			},
 			Command: cpCmd,
 		},
@@ -36,6 +38,7 @@ func GetActions() []*PluginAction {
 			Options: map[string]func(*cobra.Command) (*anypb.Any, error){
 				RecursiveFlag:   recursiveOption,
 				OmitMissingFlag: omitMissingOption,
+				ParentsFlag:     parentsOption,
 			},
 			Command: mvCmd,
 		},
