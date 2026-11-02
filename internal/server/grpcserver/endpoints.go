@@ -4,11 +4,12 @@ package grpcserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	proto "github.com/lanl/conduit/api"
+	"github.com/lanl/conduit/api"
 	"github.com/lanl/conduit/defaults"
 	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/version"
@@ -20,10 +21,10 @@ import (
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-var _ proto.ConduitApiServer = (*ConduitServer)(nil)
+var _ api.ConduitApiServer = (*ConduitServer)(nil)
 
 // StartTransfer is the initial handle of all StartTransfer requests from the gRPC API
-func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferRequest) (*proto.TransferDetails, error) {
+func (s *ConduitServer) StartTransfer(ctx context.Context, tr *api.TransferRequest) (*api.TransferDetails, error) {
 	// check if server is shutting down
 	s.ssMutex.RLock()
 	if s.Shutdown {
@@ -45,7 +46,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 	if len(bs) > maxSourceBytes {
 		err := fmt.Errorf("request contains too many sources. byte limit: %v, received: %v. Please use a directory instead of a wildcard when transferring a large number of sources", maxSourceBytes, len(bs))
 		s.log.Error(err)
-		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_MAX_ARG_STRLEN}, err
+		return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_MAX_ARG_STRLEN}, err
 	}
 
 	// get the user from the request
@@ -54,20 +55,20 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 	if err != nil {
 		err := fmt.Errorf("error getting user from request: %v", err)
 		s.log.Error(err)
-		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_AUTH}, err
+		return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_AUTH}, err
 	}
 	if user == "" {
 		err := fmt.Errorf("no user provided in request")
 		s.log.Error(err)
-		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_AUTH}, err
+		return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_AUTH}, err
 	}
 
 	s.log.Debugf("received StartTransfer request from user: %v", user)
 
 	transferID := uuid.New()
 
-	pauseState := proto.TransferState_TRANSFER_NONE
-	if viper.GetBool(defaults.ConfigTestKey) && tr.GetPausedState() != proto.TransferState_TRANSFER_NONE {
+	pauseState := api.TransferState_TRANSFER_NONE
+	if viper.GetBool(defaults.ConfigTestKey) && tr.GetPausedState() != api.TransferState_TRANSFER_NONE {
 		s.log.Debugf("received a transfer with a pause state: %v %v", tr.GetPausedState(), viper.GetBool(defaults.ConfigTestKey))
 		pauseState = tr.GetPausedState()
 	}
@@ -85,7 +86,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 	}
 
 	if action == "" && len(options) == 0 {
-		legacyAction := proto.DeprecatedAction_COPY
+		legacyAction := api.DeprecatedAction_COPY
 
 		if tr.DeprecatedAction != nil {
 			legacyAction = tr.GetDeprecatedAction()
@@ -97,17 +98,17 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 		recursive := false
 
 		switch legacyAction {
-		case proto.DeprecatedAction_COPY:
+		case api.DeprecatedAction_COPY:
 			action = actions.Action_COPY
 
-		case proto.DeprecatedAction_RECURSIVE_COPY:
+		case api.DeprecatedAction_RECURSIVE_COPY:
 			action = actions.Action_COPY
 			recursive = true
 
-		case proto.DeprecatedAction_MOVE:
+		case api.DeprecatedAction_MOVE:
 			action = actions.Action_MOVE
 
-		case proto.DeprecatedAction_RECURSIVE_MOVE:
+		case api.DeprecatedAction_RECURSIVE_MOVE:
 			action = actions.Action_MOVE
 			recursive = true
 
@@ -132,12 +133,12 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 	if action == "" {
 		err := fmt.Errorf("no action provided in request")
 		s.log.Error(err)
-		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_INVALID_INPUT, ErrorMessage: err.Error()}, err
+		return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_INVALID_INPUT, ErrorMessage: err.Error()}, err
 	}
 
-	transfer := proto.NewTransferDetails()
+	transfer := api.NewTransferDetails()
 
-	transfer.State = proto.TransferState_TRANSFER_INIT_COMPLETE
+	transfer.State = api.TransferState_TRANSFER_INIT_COMPLETE
 	transfer.TransferID = transferID.String()
 	transfer.Source = tr.GetSource()
 	transfer.Destination = tr.GetDestination()
@@ -164,7 +165,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 				if !t.AsTime().IsZero() && t.AsTime().Add(errantExpiration).Before(time.Now()) {
 					err := fmt.Errorf("user has errored trash transfer path(s) that are too old: %v", p)
 					s.eMutex.RUnlock()
-					return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_VALIDATION}, err
+					return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_VALIDATION}, err
 				}
 			}
 		}
@@ -177,7 +178,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 		return existing, nil
 	}
 
-	if err := s.em.SubmitTransfers([]*proto.TransferDetails{transfer}); err != nil {
+	if err := s.em.SubmitTransfers([]*api.TransferDetails{transfer}); err != nil {
 		return nil, fmt.Errorf("failed to submit transfer[%s]: %v", transfer.GetTransferID(), err)
 	}
 
@@ -185,7 +186,7 @@ func (s *ConduitServer) StartTransfer(ctx context.Context, tr *proto.TransferReq
 }
 
 // StopTransfer will stop a transfer that is in progress
-func (s *ConduitServer) StopTransfer(ctx context.Context, tids *proto.TransferIds) (*proto.MultiTransferDetails, error) {
+func (s *ConduitServer) StopTransfer(ctx context.Context, tids *api.TransferIds) (*api.MultiTransferDetails, error) {
 	// check if server is shutting down
 	s.ssMutex.RLock()
 	if s.Shutdown {
@@ -202,7 +203,7 @@ func (s *ConduitServer) StopTransfer(ctx context.Context, tids *proto.TransferId
 	if err != nil {
 		err := fmt.Errorf("error getting user from request: %v", err)
 		s.log.Error(err)
-		mtd := &proto.MultiTransferDetails{}
+		mtd := &api.MultiTransferDetails{}
 		return mtd, err
 	}
 
@@ -218,14 +219,14 @@ func (s *ConduitServer) StopTransfer(ctx context.Context, tids *proto.TransferId
 		if err != nil {
 			err := fmt.Errorf("failed to parse transferid[%s]: %v", tid, err)
 			s.log.Error(err)
-			td := &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, Error: proto.Error_ERROR_CONDUIT_INTERNAL}
-			mtd := &proto.MultiTransferDetails{Details: map[string]*proto.TransferDetails{"": td}}
+			td := &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, Error: api.Error_ERROR_CONDUIT_INTERNAL}
+			mtd := &api.MultiTransferDetails{Details: map[string]*api.TransferDetails{"": td}}
 			return mtd, err
 		}
 		rtids = append(rtids, requestedTransferID)
 	}
 
-	transfers := make(map[string]*proto.TransferDetails)
+	transfers := make(map[string]*api.TransferDetails)
 
 	for _, rtid := range rtids {
 		// check if this was a privileged request
@@ -236,17 +237,17 @@ func (s *ConduitServer) StopTransfer(ctx context.Context, tids *proto.TransferId
 				_, ok := userTransfers[rtid]
 				if !ok {
 					// transfer doesn't exist for user
-					return &proto.MultiTransferDetails{}, fmt.Errorf("transfer[%s] not found for user[%s]", rtid, user)
+					return &api.MultiTransferDetails{}, fmt.Errorf("transfer[%s] not found for user[%s]", rtid, user)
 				}
 				transfers[rtid.String()] = s.transfers[rtid.String()]
 			} else {
-				return &proto.MultiTransferDetails{}, fmt.Errorf("no transfers found for user: %s", user)
+				return &api.MultiTransferDetails{}, fmt.Errorf("no transfers found for user: %s", user)
 			}
 		} else {
 			// user is privileged so they can abort any transfer
 			t, ok := s.transfers[rtid.String()]
 			if !ok {
-				return &proto.MultiTransferDetails{}, fmt.Errorf("transfer[%s] not found in conduit", rtid)
+				return &api.MultiTransferDetails{}, fmt.Errorf("transfer[%s] not found in conduit", rtid)
 			}
 			transfers[rtid.String()] = t
 		}
@@ -271,12 +272,12 @@ func (s *ConduitServer) StopTransfer(ctx context.Context, tids *proto.TransferId
 		}
 	}
 
-	mtd := goproto.Clone(&proto.MultiTransferDetails{Details: transfers}).(*proto.MultiTransferDetails)
+	mtd := goproto.Clone(&api.MultiTransferDetails{Details: transfers}).(*api.MultiTransferDetails)
 
 	return mtd, finalErrors
 }
 
-func (s *ConduitServer) PauseTransfer(ctx context.Context, pr *proto.PauseRequest) (*proto.TransferDetails, error) {
+func (s *ConduitServer) PauseTransfer(ctx context.Context, pr *api.PauseRequest) (*api.TransferDetails, error) {
 	// check if server is shutting down
 	s.ssMutex.RLock()
 	if s.Shutdown {
@@ -297,7 +298,7 @@ func (s *ConduitServer) PauseTransfer(ctx context.Context, pr *proto.PauseReques
 	if err != nil {
 		err := fmt.Errorf("error getting user from request: %v", err)
 		s.log.Error(err)
-		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_AUTH}, err
+		return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_AUTH}, err
 	}
 
 	s.log.Debugf("received pause request from user[%v] for transer[%v] [%s]", user, pr.GetTransferID(), pr.GetPausedState().String())
@@ -309,7 +310,7 @@ func (s *ConduitServer) PauseTransfer(ctx context.Context, pr *proto.PauseReques
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse transferid[%s]: %v", pr.GetTransferID(), err)
 	}
-	var thisTransfer *proto.TransferDetails
+	var thisTransfer *api.TransferDetails
 
 	// if user is a privileged account, assume they can pause any transfer in conduit
 	if reqPrivLevel == unprivileged {
@@ -349,13 +350,13 @@ func (s *ConduitServer) PauseTransfer(ctx context.Context, pr *proto.PauseReques
 		}
 	}
 
-	tt := goproto.Clone(thisTransfer).(*proto.TransferDetails)
+	tt := goproto.Clone(thisTransfer).(*api.TransferDetails)
 
 	return tt, nil
 }
 
 // Query is the initial handle of all Query requests from the gRPC API
-func (s *ConduitServer) Query(ctx context.Context, qo *proto.QueryOptions) (*proto.MultiTransferDetails, error) {
+func (s *ConduitServer) Query(ctx context.Context, qo *api.QueryOptions) (*api.MultiTransferDetails, error) {
 	s.log.Debugf("got query request")
 	// get the user from the request
 	requestedUser := qo.GetUser()
@@ -363,8 +364,8 @@ func (s *ConduitServer) Query(ctx context.Context, qo *proto.QueryOptions) (*pro
 	if err != nil {
 		err = fmt.Errorf("error getting user from request: %v", err)
 		s.log.Error(err)
-		td := &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, Error: proto.Error_ERROR_AUTH}
-		mtd := &proto.MultiTransferDetails{Details: map[string]*proto.TransferDetails{"": td}}
+		td := &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, Error: api.Error_ERROR_AUTH}
+		mtd := &api.MultiTransferDetails{Details: map[string]*api.TransferDetails{"": td}}
 		return mtd, err
 	}
 
@@ -380,7 +381,7 @@ func (s *ConduitServer) Query(ctx context.Context, qo *proto.QueryOptions) (*pro
 
 	s.tMutex.RLock()
 
-	transfers := make(map[string]*proto.TransferDetails)
+	transfers := make(map[string]*api.TransferDetails)
 
 	// if user is a privileged account, assume they want all transfers in conduit
 	if (reqPrivLevel == privilegedAdmin || reqPrivLevel == privilegedService) && user == "" {
@@ -418,8 +419,8 @@ func (s *ConduitServer) Query(ctx context.Context, qo *proto.QueryOptions) (*pro
 	}
 
 	if len(transfers) == 0 {
-		return &proto.MultiTransferDetails{
-			Details: make(map[string]*proto.TransferDetails),
+		return &api.MultiTransferDetails{
+			Details: make(map[string]*api.TransferDetails),
 		}, nil
 	}
 
@@ -427,12 +428,12 @@ func (s *ConduitServer) Query(ctx context.Context, qo *proto.QueryOptions) (*pro
 
 	ft, err := filterTransfers(qo, transfers)
 	if err != nil {
-		return &proto.MultiTransferDetails{}, fmt.Errorf("failed to filter transfers: %v", err)
+		return &api.MultiTransferDetails{}, fmt.Errorf("failed to filter transfers: %v", err)
 	}
 
 	s.log.Debugf("cloning transfers")
 
-	mtd := goproto.Clone(&proto.MultiTransferDetails{Details: ft}).(*proto.MultiTransferDetails)
+	mtd := goproto.Clone(&api.MultiTransferDetails{Details: ft}).(*api.MultiTransferDetails)
 
 	s.log.Debugf("returning transfers")
 
@@ -440,10 +441,10 @@ func (s *ConduitServer) Query(ctx context.Context, qo *proto.QueryOptions) (*pro
 }
 
 // StartTransfer is the initial handle of all StartTransfer requests from the gRPC API
-func (s *ConduitServer) Version(ctx context.Context, _ *emptypb.Empty) (*proto.VersionInfo, error) {
+func (s *ConduitServer) Version(ctx context.Context, _ *emptypb.Empty) (*api.VersionInfo, error) {
 	build := version.Current()
 
-	vi := &proto.VersionInfo{
+	vi := &api.VersionInfo{
 		Version:  build.String(),
 		Modified: build.Modified,
 	}
@@ -451,7 +452,7 @@ func (s *ConduitServer) Version(ctx context.Context, _ *emptypb.Empty) (*proto.V
 	return vi, nil
 }
 
-func (s *ConduitServer) WatchStatus(tids *proto.TransferIds, stream proto.ConduitApi_WatchStatusServer) error {
+func (s *ConduitServer) WatchStatus(tids *api.TransferIds, stream api.ConduitApi_WatchStatusServer) error {
 	user, reqPrivLevel, err := s.getUserFromRequest(stream.Context(), nil)
 	if err != nil {
 		err = fmt.Errorf("error getting user from request: %v", err)
@@ -473,7 +474,7 @@ func (s *ConduitServer) WatchStatus(tids *proto.TransferIds, stream proto.Condui
 	}
 
 	userTransferIDs := make(map[string]bool)
-	var rqliteFoundTransfers map[string]*proto.TransferDetails
+	var rqliteFoundTransfers map[string]*api.TransferDetails
 	transferIDs := []uuid.UUID{}
 
 	// get all transfers for this user
@@ -530,7 +531,7 @@ func (s *ConduitServer) WatchStatus(tids *proto.TransferIds, stream proto.Condui
 					return err
 				}
 
-				it := proto.IncompleteTransfer(&proto.TransferDetails{TransferID: uid.String()})
+				it := api.IncompleteTransfer(&api.TransferDetails{TransferID: uid.String()})
 				resUser, _, err := s.em.GetTransferUser(it)
 				if err != nil {
 					err = fmt.Errorf("failed to get user for tranfser[%v]: %v", rid, err)
@@ -586,7 +587,7 @@ func (s *ConduitServer) WatchStatus(tids *proto.TransferIds, stream proto.Condui
 
 	// always send a full update first
 	s.tMutex.RLock()
-	details := make(map[string]*proto.TransferDetails)
+	details := make(map[string]*api.TransferDetails)
 	for _, id := range transferIDs {
 		td, ok := s.transfers[id.String()]
 		if ok {
@@ -612,7 +613,7 @@ func (s *ConduitServer) WatchStatus(tids *proto.TransferIds, stream proto.Condui
 		}
 	}
 
-	mtd := goproto.Clone(&proto.MultiTransferDetails{Details: details}).(*proto.MultiTransferDetails)
+	mtd := goproto.Clone(&api.MultiTransferDetails{Details: details}).(*api.MultiTransferDetails)
 
 	err = stream.Send(mtd)
 	if err != nil {
@@ -644,8 +645,8 @@ func (s *ConduitServer) WatchStatus(tids *proto.TransferIds, stream proto.Condui
 			s.tMutex.RLock()
 			td, ok := s.transfers[id.String()]
 			if ok {
-				details := map[string]*proto.TransferDetails{td.GetTransferID(): td}
-				mtd := goproto.Clone(&proto.MultiTransferDetails{Details: details}).(*proto.MultiTransferDetails)
+				details := map[string]*api.TransferDetails{td.GetTransferID(): td}
+				mtd := goproto.Clone(&api.MultiTransferDetails{Details: details}).(*api.MultiTransferDetails)
 				err := stream.Send(mtd)
 				if err != nil {
 					s.log.Errorf("failed to send multi transfer details to grpc stream[%v]: %v", streamID, err)
@@ -673,7 +674,7 @@ func (s *ConduitServer) WatchStatus(tids *proto.TransferIds, stream proto.Condui
 }
 
 // ValidateTransfer will only run validation on a transfer and then stop
-func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.TransferRequest) (*proto.TransferDetails, error) {
+func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *api.TransferRequest) (*api.TransferDetails, error) {
 	// check if server is shutting down
 	s.ssMutex.RLock()
 	if s.Shutdown {
@@ -691,20 +692,20 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 	if err != nil {
 		err := fmt.Errorf("error getting user from request: %v", err)
 		s.log.Error(err)
-		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_AUTH}, err
+		return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_AUTH}, err
 	}
 	if user == "" {
 		err := fmt.Errorf("no user provided in request")
 		s.log.Error(err)
-		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_AUTH}, err
+		return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_AUTH}, err
 	}
 
 	s.log.Debugf("received StartTransfer request from user: %v", user)
 
 	transferID := uuid.New()
 
-	pauseState := proto.TransferState_TRANSFER_NONE
-	if viper.GetBool(defaults.ConfigTestKey) && tr.GetPausedState() != proto.TransferState_TRANSFER_NONE {
+	pauseState := api.TransferState_TRANSFER_NONE
+	if viper.GetBool(defaults.ConfigTestKey) && tr.GetPausedState() != api.TransferState_TRANSFER_NONE {
 		s.log.Debugf("received a transfer with a pause state: %v %v", tr.GetPausedState(), viper.GetBool(defaults.ConfigTestKey))
 		pauseState = tr.GetPausedState()
 	}
@@ -717,7 +718,7 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 	}
 
 	if action == "" && len(options) == 0 {
-		legacyAction := proto.DeprecatedAction_COPY
+		legacyAction := api.DeprecatedAction_COPY
 
 		if tr.DeprecatedAction != nil {
 			legacyAction = tr.GetDeprecatedAction()
@@ -729,17 +730,17 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 		recursive := false
 
 		switch legacyAction {
-		case proto.DeprecatedAction_COPY:
+		case api.DeprecatedAction_COPY:
 			action = actions.Action_COPY
 
-		case proto.DeprecatedAction_RECURSIVE_COPY:
+		case api.DeprecatedAction_RECURSIVE_COPY:
 			action = actions.Action_COPY
 			recursive = true
 
-		case proto.DeprecatedAction_MOVE:
+		case api.DeprecatedAction_MOVE:
 			action = actions.Action_MOVE
 
-		case proto.DeprecatedAction_RECURSIVE_MOVE:
+		case api.DeprecatedAction_RECURSIVE_MOVE:
 			action = actions.Action_MOVE
 			recursive = true
 
@@ -764,12 +765,12 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 	if action == "" {
 		err := fmt.Errorf("no action provided in request")
 		s.log.Error(err)
-		return &proto.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: proto.TransferState_TRANSFER_ERROR, Error: proto.Error_ERROR_INVALID_INPUT, ErrorMessage: err.Error()}, err
+		return &api.TransferDetails{Source: []string{}, Destination: "", User: "", StartTime: nil, EndTime: nil, State: api.TransferState_TRANSFER_ERROR, Error: api.Error_ERROR_INVALID_INPUT, ErrorMessage: err.Error()}, err
 	}
 
-	transfer := proto.NewTransferDetails()
+	transfer := api.NewTransferDetails()
 
-	transfer.State = proto.TransferState_TRANSFER_INIT_COMPLETE
+	transfer.State = api.TransferState_TRANSFER_INIT_COMPLETE
 	transfer.TransferID = transferID.String()
 	transfer.Source = tr.GetSource()
 	transfer.Destination = tr.GetDestination()
@@ -787,14 +788,14 @@ func (s *ConduitServer) ValidateTransfer(ctx context.Context, tr *proto.Transfer
 		transfer.Warnings = append(transfer.Warnings, fmt.Sprintf("%s (Validate Transfer)", adminWarning))
 	}
 
-	if err := s.em.SubmitTransfers([]*proto.TransferDetails{transfer}); err != nil {
+	if err := s.em.SubmitTransfers([]*api.TransferDetails{transfer}); err != nil {
 		return nil, fmt.Errorf("failed to submit transfer[%s]: %v", transfer.GetTransferID(), err)
 	}
 
 	return transfer, nil
 }
 
-func (s *ConduitServer) ServerControl(ctx context.Context, scr *proto.ServerControlRequest) (*proto.ServerControlResponse, error) {
+func (s *ConduitServer) ServerControl(ctx context.Context, scr *api.ServerControlRequest) (*api.ServerControlResponse, error) {
 	// get the user from the request
 	user, reqPrivLevel, err := s.getUserFromRequest(ctx, nil)
 	if err != nil {
@@ -810,30 +811,30 @@ func (s *ConduitServer) ServerControl(ctx context.Context, scr *proto.ServerCont
 		return nil, fmt.Errorf("you do not have permission to control server state")
 	}
 
-	var state proto.ServerState
+	var state api.ServerState
 
 	switch scr.Action {
-	case proto.ServerControlAction_SERVER_CONTROL_STATUS:
+	case api.ServerControlAction_SERVER_CONTROL_STATUS:
 		s.ssMutex.RLock()
 		state = s.serverState
 		s.ssMutex.RUnlock()
-	case proto.ServerControlAction_SERVER_CONTROL_STOP:
+	case api.ServerControlAction_SERVER_CONTROL_STOP:
 		go func() {
 			err := s.pauseConduit()
 			if err != nil {
 				s.log.Errorf("failed to pause conduit server: %v", err)
 			}
 		}()
-		state = proto.ServerState_SERVER_UNKNOWN
-	case proto.ServerControlAction_SERVER_CONTROL_DRAIN:
+		state = api.ServerState_SERVER_UNKNOWN
+	case api.ServerControlAction_SERVER_CONTROL_DRAIN:
 		go func() {
 			err := s.drainConduit()
 			if err != nil {
 				s.log.Errorf("failed to drain conduit server: %v", err)
 			}
 		}()
-		state = proto.ServerState_SERVER_UNKNOWN
-	case proto.ServerControlAction_SERVER_CONTROL_START:
+		state = api.ServerState_SERVER_UNKNOWN
+	case api.ServerControlAction_SERVER_CONTROL_START:
 		err := s.resumeConduit()
 		if err != nil {
 			return nil, fmt.Errorf("failed to resume conduit server: %v", err)
@@ -845,10 +846,10 @@ func (s *ConduitServer) ServerControl(ctx context.Context, scr *proto.ServerCont
 		return nil, fmt.Errorf("unknown action provided: %s", scr.Action)
 	}
 
-	return &proto.ServerControlResponse{ServerState: state}, nil
+	return &api.ServerControlResponse{ServerState: state}, nil
 }
 
-func (s *ConduitServer) SchedulerInfo(ctx context.Context, _ *emptypb.Empty) (*proto.SchedulerInfoResponse, error) {
+func (s *ConduitServer) SchedulerInfo(ctx context.Context, _ *emptypb.Empty) (*api.SchedulerInfoResponse, error) {
 	// get the user from the request
 	user, reqPrivLevel, err := s.getUserFromRequest(ctx, nil)
 	if err != nil {
@@ -864,11 +865,11 @@ func (s *ConduitServer) SchedulerInfo(ctx context.Context, _ *emptypb.Empty) (*p
 		return nil, fmt.Errorf("you do not have permission to get scheduler info")
 	}
 
-	schedulers := make(map[string]*proto.SchedulerStatus)
+	schedulers := make(map[string]*api.SchedulerStatus)
 
 	for _, scheduler := range s.schdulers {
-		schedulerStatus := &proto.SchedulerStatus{
-			Nodes: make(map[string]*proto.NodeStatus),
+		schedulerStatus := &api.SchedulerStatus{
+			Nodes: make(map[string]*api.NodeStatus),
 		}
 
 		queue := scheduler.GetQueue()
@@ -877,8 +878,8 @@ func (s *ConduitServer) SchedulerInfo(ctx context.Context, _ *emptypb.Empty) (*p
 
 		nodes := scheduler.GetNodeInfo()
 		for _, node := range nodes {
-			nodeStatus := &proto.NodeStatus{
-				Jobs:            make(map[string]*proto.JobInfo),
+			nodeStatus := &api.NodeStatus{
+				Jobs:            make(map[string]*api.JobInfo),
 				AvailableMemory: node.Memory,
 				JobsVersion:     node.LastJobsVersion,
 				RunnerVersion:   node.RunnerVersion,
@@ -894,10 +895,10 @@ func (s *ConduitServer) SchedulerInfo(ctx context.Context, _ *emptypb.Empty) (*p
 		schedulers[scheduler.GetSchedulerID().String()] = schedulerStatus
 	}
 
-	return &proto.SchedulerInfoResponse{Schedulers: schedulers}, nil
+	return &api.SchedulerInfoResponse{Schedulers: schedulers}, nil
 }
 
-func (s *ConduitServer) ErrantPaths(ctx context.Context, epr *proto.ErrantPathsRequest) (*proto.ErrantPathsResponse, error) {
+func (s *ConduitServer) ErrantPaths(ctx context.Context, epr *api.ErrantPathsRequest) (*api.ErrantPathsResponse, error) {
 	s.log.Debugf("got request for errant paths")
 	// get the user from the request
 	requestedUser := epr.GetUser()
@@ -905,7 +906,7 @@ func (s *ConduitServer) ErrantPaths(ctx context.Context, epr *proto.ErrantPathsR
 	if err != nil {
 		err = fmt.Errorf("error getting user from request: %v", err)
 		s.log.Error(err)
-		epresp := &proto.ErrantPathsResponse{Paths: make(map[string]*timestamppb.Timestamp)}
+		epresp := &api.ErrantPathsResponse{Paths: make(map[string]*timestamppb.Timestamp)}
 		return epresp, err
 	}
 
@@ -928,21 +929,21 @@ func (s *ConduitServer) ErrantPaths(ctx context.Context, epr *proto.ErrantPathsR
 		}
 	}
 
-	epresp := goproto.Clone(&proto.ErrantPathsResponse{Paths: errants}).(*proto.ErrantPathsResponse)
+	epresp := goproto.Clone(&api.ErrantPathsResponse{Paths: errants}).(*api.ErrantPathsResponse)
 
 	s.log.Debugf("returning errant paths for user [%v]", user)
 
 	return epresp, nil
 }
 
-func (s *ConduitServer) PurgeErrantPath(ctx context.Context, pepr *proto.PurgeErrantPathRequest) (*proto.ErrantPathsResponse, error) {
+func (s *ConduitServer) PurgeErrantPath(ctx context.Context, pepr *api.PurgeErrantPathRequest) (*api.ErrantPathsResponse, error) {
 	// get the user from the request
 	requestedUser := pepr.GetUser()
 	user, reqPrivLevel, err := s.getUserFromRequest(ctx, &requestedUser)
 	if err != nil {
 		err = fmt.Errorf("error getting user from request: %v", err)
 		s.log.Error(err)
-		epresp := &proto.ErrantPathsResponse{Paths: make(map[string]*timestamppb.Timestamp)}
+		epresp := &api.ErrantPathsResponse{Paths: make(map[string]*timestamppb.Timestamp)}
 		return epresp, err
 	}
 
@@ -957,7 +958,7 @@ func (s *ConduitServer) PurgeErrantPath(ctx context.Context, pepr *proto.PurgeEr
 				// if the requested purge path is in this user, set it to PURGE
 				if _, ok := ue[purgePath]; ok {
 					s.em.RemoveErrant(u, purgePath)
-					errants[purgePath] = proto.PurgeValue
+					errants[purgePath] = api.PurgeValue
 				}
 			}
 		}
@@ -969,18 +970,18 @@ func (s *ConduitServer) PurgeErrantPath(ctx context.Context, pepr *proto.PurgeEr
 				// if the requested purge path is in this user, set it to PURGE
 				if _, ok := ue[purgePath]; ok {
 					s.em.RemoveErrant(user, purgePath)
-					errants[purgePath] = proto.PurgeValue
+					errants[purgePath] = api.PurgeValue
 				}
 			}
 		}
 	}
 
-	epresp := goproto.Clone(&proto.ErrantPathsResponse{Paths: errants}).(*proto.ErrantPathsResponse)
+	epresp := goproto.Clone(&api.ErrantPathsResponse{Paths: errants}).(*api.ErrantPathsResponse)
 
 	return epresp, nil
 }
 
-func (s *ConduitServer) GetCert(ctx context.Context, cr *proto.CertRequest) (*proto.CertResponse, error) {
+func (s *ConduitServer) GetCert(ctx context.Context, cr *api.CertRequest) (*api.CertResponse, error) {
 	// get the user from the request
 	requestedUser := cr.GetUser()
 	user, reqPrivLevel, err := s.getUserFromRequest(ctx, &requestedUser)
@@ -1006,10 +1007,10 @@ func (s *ConduitServer) GetCert(ctx context.Context, cr *proto.CertRequest) (*pr
 		return nil, err
 	}
 
-	return &proto.CertResponse{Cert: certPEM}, nil
+	return &api.CertResponse{Cert: certPEM}, nil
 }
 
-func (s *ConduitServer) TransferNotify(notifyRequest *proto.NotifyRequest, stream proto.ConduitApi_TransferNotifyServer) error {
+func (s *ConduitServer) TransferNotify(notifyRequest *api.NotifyRequest, stream api.ConduitApi_TransferNotifyServer) error {
 	requestedUser := notifyRequest.GetUser()
 	user, _, err := s.getUserFromRequest(stream.Context(), &requestedUser)
 	if err != nil {
@@ -1023,7 +1024,7 @@ func (s *ConduitServer) TransferNotify(notifyRequest *proto.NotifyRequest, strea
 	}
 
 	streamID := uuid.New()
-	uChan := make(chan *proto.NotifyMessage, 1)
+	uChan := make(chan *api.NotifyMessage, 1)
 
 	defer func() {
 		var workerToStop *userNotificationWorker
@@ -1091,4 +1092,101 @@ func (s *ConduitServer) TransferNotify(notifyRequest *proto.NotifyRequest, strea
 			return stream.Context().Err()
 		}
 	}
+}
+
+func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *api.ReRunRequest) (*api.MultiTransferDetails, error) {
+	// check if server is shutting down
+	s.ssMutex.RLock()
+	if s.Shutdown {
+		s.ssMutex.RUnlock()
+		return nil, fmt.Errorf("server shutting down")
+	} else {
+		s.ssMutex.RUnlock()
+		s.jobs.Add(1)
+		defer s.jobs.Done()
+	}
+
+	// check for admin privileges
+	_, reqPrivLevel, err := s.getUserFromRequest(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user from request: %v", err)
+	}
+	if reqPrivLevel != privilegedAdmin {
+		return nil, fmt.Errorf("you do not have permission to rerun transfers")
+	}
+
+	s.log.Debugf("received rerun transfer request from admin: %v", reRunRequest.GetTransferIDs())
+	return reRunArchivedTransfers(reRunRequest.GetTransferIDs(), s.rm, s.em)
+}
+
+type rerunArchive interface {
+	GetTransfers([]string) (map[string]*api.TransferDetails, error)
+	RemoveTransfers([]string) (int64, error)
+	AddTransfer(*api.TransferDetails) error
+}
+
+type rerunSubmitter interface {
+	SubmitTransfers([]*api.TransferDetails) error
+}
+
+func reRunArchivedTransfers(ids []string, archive rerunArchive, submitter rerunSubmitter) (*api.MultiTransferDetails, error) {
+
+	// get matching transfers from rqlite
+	transfers, err := archive.GetTransfers(ids)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transfers from rqlite: %v", err)
+	}
+
+	if len(transfers) == 0 {
+		return &api.MultiTransferDetails{
+			Details: make(map[string]*api.TransferDetails),
+		}, nil
+	}
+
+	newTransfers := make(map[string]*api.TransferDetails)
+	var finalError error
+
+	for _, t := range transfers {
+		// remove transfer from rqlite
+		removed, err := archive.RemoveTransfers([]string{t.GetTransferID()})
+		if err != nil {
+			return nil, fmt.Errorf("failed to remove transfer[%s] from rqlite: %w", t.GetTransferID(), err)
+		}
+
+		// Another server may have already claimed this transfer.
+		if removed == 0 {
+			continue
+		}
+
+		transfer := api.NewTransferDetails()
+
+		transfer.State = api.TransferState_TRANSFER_INIT_COMPLETE
+		transfer.TransferID = t.GetTransferID()
+		transfer.Source = t.GetSource()
+		transfer.Destination = t.GetDestination()
+		transfer.Active = true
+		transfer.User = t.GetUser()
+		transfer.CreatedTime = t.GetCreatedTime()
+		transfer.Comment = t.GetComment()
+		transfer.Action = t.GetAction()
+		transfer.Options = t.GetOptions()
+		transfer.ValidationOnly = t.GetValidationOnly()
+		transfer.Expiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
+		transfer.Warnings = append(transfer.Warnings, fmt.Sprintf("%s (Rerun Transfer)", adminWarning))
+
+		if err := submitter.SubmitTransfers([]*api.TransferDetails{transfer}); err != nil {
+			finalError = errors.Join(finalError, fmt.Errorf("failed to submit transfer[%s]: %w", t.GetTransferID(), err))
+
+			// add original transfer back to rqlite if the submit failed
+			if rErr := archive.AddTransfer(t); rErr != nil {
+				finalError = errors.Join(finalError, fmt.Errorf("failed to restore transfer[%s] to rqlite: %w", t.GetTransferID(), rErr))
+			}
+
+			continue
+		}
+
+		newTransfers[transfer.GetTransferID()] = transfer
+	}
+
+	return &api.MultiTransferDetails{Details: newTransfers}, finalError
 }

@@ -271,3 +271,31 @@ func (rm *RqliteManager) sendRequest(urlPath util.RqlitePath, sql string) (*Rqli
 
 	return nil, fmt.Errorf("failed to send rqlite to any endpoints: %v", fErr)
 }
+
+// removes transfers from rqlite
+func (rm *RqliteManager) RemoveTransfers(transferIDs []string) (int64, error) {
+	if len(transferIDs) == 0 {
+		return 0, nil
+	}
+
+	// generate sql string
+	ds := goqu.Delete(ConduitTable).Where(goqu.Ex{
+		ColumnTransferId: transferIDs,
+	})
+	sql, _, err := ds.ToSQL()
+	if err != nil {
+		return 0, fmt.Errorf("failed to generate sql command for transfers: %w", err)
+	}
+
+	// send sql to rqlite
+	resp, err := rm.sendRequest(util.PathExecute, sql)
+	if err != nil {
+		return 0, fmt.Errorf("failed to remove transfers from rqlite: %w", err)
+	}
+
+	if len(resp.Results) != 1 {
+		return 0, fmt.Errorf("unexpected rqlite delete response")
+	}
+
+	return resp.Results[0].RowsAffected, nil
+}

@@ -49,6 +49,8 @@ type ConduitApiClient interface {
 	PurgeErrantPath(ctx context.Context, in *PurgeErrantPathRequest, opts ...grpc.CallOption) (*ErrantPathsResponse, error)
 	// TransferNotify is a long running stream that will send a transferid when a new one is created for a user
 	TransferNotify(ctx context.Context, in *NotifyRequest, opts ...grpc.CallOption) (ConduitApi_TransferNotifyClient, error)
+	// ReRunTransfers will rerun transfers that have already completed
+	ReRunTransfers(ctx context.Context, in *ReRunRequest, opts ...grpc.CallOption) (*MultiTransferDetails, error)
 }
 
 type conduitApiClient struct {
@@ -222,6 +224,15 @@ func (x *conduitApiTransferNotifyClient) Recv() (*NotifyMessage, error) {
 	return m, nil
 }
 
+func (c *conduitApiClient) ReRunTransfers(ctx context.Context, in *ReRunRequest, opts ...grpc.CallOption) (*MultiTransferDetails, error) {
+	out := new(MultiTransferDetails)
+	err := c.cc.Invoke(ctx, "/conduitapi.ConduitApi/ReRunTransfers", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ConduitApiServer is the server API for ConduitApi service.
 // All implementations must embed UnimplementedConduitApiServer
 // for forward compatibility
@@ -252,6 +263,8 @@ type ConduitApiServer interface {
 	PurgeErrantPath(context.Context, *PurgeErrantPathRequest) (*ErrantPathsResponse, error)
 	// TransferNotify is a long running stream that will send a transferid when a new one is created for a user
 	TransferNotify(*NotifyRequest, ConduitApi_TransferNotifyServer) error
+	// ReRunTransfers will rerun transfers that have already completed
+	ReRunTransfers(context.Context, *ReRunRequest) (*MultiTransferDetails, error)
 	mustEmbedUnimplementedConduitApiServer()
 }
 
@@ -297,6 +310,9 @@ func (UnimplementedConduitApiServer) PurgeErrantPath(context.Context, *PurgeErra
 }
 func (UnimplementedConduitApiServer) TransferNotify(*NotifyRequest, ConduitApi_TransferNotifyServer) error {
 	return status.Errorf(codes.Unimplemented, "method TransferNotify not implemented")
+}
+func (UnimplementedConduitApiServer) ReRunTransfers(context.Context, *ReRunRequest) (*MultiTransferDetails, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReRunTransfers not implemented")
 }
 func (UnimplementedConduitApiServer) mustEmbedUnimplementedConduitApiServer() {}
 
@@ -551,6 +567,24 @@ func (x *conduitApiTransferNotifyServer) Send(m *NotifyMessage) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _ConduitApi_ReRunTransfers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReRunRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConduitApiServer).ReRunTransfers(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/conduitapi.ConduitApi/ReRunTransfers",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConduitApiServer).ReRunTransfers(ctx, req.(*ReRunRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ConduitApi_ServiceDesc is the grpc.ServiceDesc for ConduitApi service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -601,6 +635,10 @@ var ConduitApi_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PurgeErrantPath",
 			Handler:    _ConduitApi_PurgeErrantPath_Handler,
+		},
+		{
+			MethodName: "ReRunTransfers",
+			Handler:    _ConduitApi_ReRunTransfers_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -37,6 +37,8 @@ service ConduitApi {
     rpc PurgeErrantPath(PurgeErrantPathRequest) returns (ErrantPathsResponse) {}
     // TransferNotify is a long running stream that will send a transferid when a new one is created for a user
     rpc TransferNotify(NotifyRequest) returns (stream NotifyMessage) {}
+    // ReRunTransfers will rerun transfers that have already completed
+    rpc ReRunTransfers(ReRunRequest) returns (MultiTransferDetails) {}
 }
 
 message MultiTransferDetails {
@@ -118,6 +120,10 @@ message TransferRequest {
     TransferState pausedState = 6;                      // the state to pause the transfer at (only for test mode)
     string action = 7;                                  // action defined by transfer plugin
     map<string, google.protobuf.Any> options = 8;       // options defined by any plugin
+}
+
+message ReRunRequest {
+    repeated string transferIDs = 1;                    // the transfer ID of the transfer you want to rerun
 }
 
 message PauseRequest {

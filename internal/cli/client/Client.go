@@ -618,6 +618,24 @@ func (cc *ConduitClient) PurgeErrantPaths(paths []string, user string) (*proto.E
 	return response, nil
 }
 
+// ReRunTransfers sends a GRPC rerun request to the conduit server for the specified TransferIDs
+func (cc *ConduitClient) ReRunTransfers(ids []string) (*proto.MultiTransferDetails, error) {
+	rr := &proto.ReRunRequest{
+		TransferIDs: ids,
+	}
+
+	timeout := viper.GetDuration(defaults.ConfigConduitTimeoutKey)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	response, err := cc.client.ReRunTransfers(ctx, rr, grpc.WaitForReady(true))
+	if err != nil {
+		return nil, fmt.Errorf("failed to send rerun request: %v", err)
+	}
+
+	return response, nil
+}
+
 // simple function used to convert a new action into a deprecated version
 // it will return COPY if an action is not recognized
 func GetOldAction(action string, options map[string]*anypb.Any) proto.DeprecatedAction {
