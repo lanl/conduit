@@ -1116,9 +1116,23 @@ func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *api.Re
 	}
 
 	s.log.Debugf("received rerun transfer request from admin: %v", reRunRequest.GetTransferIDs())
+	return reRunArchivedTransfers(reRunRequest.GetTransferIDs(), s.rm, s.em)
+}
+
+type rerunArchive interface {
+	GetTransfers([]string) (map[string]*api.TransferDetails, error)
+	RemoveTransfers([]string) (int64, error)
+	AddTransfer(*api.TransferDetails) error
+}
+
+type rerunSubmitter interface {
+	SubmitTransfers([]*api.TransferDetails) error
+}
+
+func reRunArchivedTransfers(ids []string, archive rerunArchive, submitter rerunSubmitter) (*api.MultiTransferDetails, error) {
 
 	// get matching transfers from rqlite
-	transfers, err := s.rm.GetTransfers(reRunRequest.GetTransferIDs())
+	transfers, err := archive.GetTransfers(ids)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transfers from rqlite: %v", err)
 	}
@@ -1134,7 +1148,7 @@ func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *api.Re
 
 	for _, t := range transfers {
 		// remove transfer from rqlite
-		removed, err := s.rm.RemoveTransfers([]string{t.GetTransferID()})
+		removed, err := archive.RemoveTransfers([]string{t.GetTransferID()})
 		if err != nil {
 			return nil, fmt.Errorf("failed to remove transfer[%s] from rqlite: %w", t.GetTransferID(), err)
 		}
@@ -1160,11 +1174,11 @@ func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *api.Re
 		transfer.Expiry = timestamppb.New(time.Now().Add(viper.GetDuration(defaults.ConfigExpiryAdvanceKey)))
 		transfer.Warnings = append(transfer.Warnings, fmt.Sprintf("%s (Rerun Transfer)", adminWarning))
 
-		if err := s.em.SubmitTransfers([]*api.TransferDetails{transfer}); err != nil {
+		if err := submitter.SubmitTransfers([]*api.TransferDetails{transfer}); err != nil {
 			finalError = errors.Join(finalError, fmt.Errorf("failed to submit transfer[%s]: %w", t.GetTransferID(), err))
 
 			// add original transfer back to rqlite if the submit failed
-			if rErr := s.rm.AddTransfer(t); rErr != nil {
+			if rErr := archive.AddTransfer(t); rErr != nil {
 				finalError = errors.Join(finalError, fmt.Errorf("failed to restore transfer[%s] to rqlite: %w", t.GetTransferID(), rErr))
 			}
 
