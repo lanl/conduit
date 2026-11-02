@@ -97,10 +97,16 @@ func symWalk(pathSuffix string, ftaPathPrefix string, userPathPrefix string, lt 
 
 		fi, err := os.Lstat(currentFullPath)
 		if err != nil {
-			// if the final location doesn't exist, that's okay
-			if errors.Is(err, os.ErrNotExist) && i == len(pathSlice) {
-				logrus.Debugf("current path[%v] doesn't exist, but it's the end of the path so we ignore", currentFullPath)
-				continue
+			if errors.Is(err, os.ErrNotExist) {
+				if lt == proto.LeaseType_DESTINATION {
+					// Allow missing destination components. Setup may create
+					// the parent directories if --parents was specified.
+					return "", filepath.Join(ftaPathPrefix, filepath.Join(pathSlice...)), proto.Error_ERROR_NONE, nil
+				}
+
+				if i == len(pathSlice) {
+					continue
+				}
 			}
 			return "", "", proto.Error_ERROR_STAT_FAILED, fmt.Errorf("failed to lstat path[%v]: %v", currentFullPath, err)
 		}
@@ -184,4 +190,28 @@ func isFTADestDir(destFTAPath string) (proto.DestInfo, proto.Error, error) {
 	}
 
 	return destInfo, proto.Error_ERROR_NONE, nil
+}
+
+func findExistingParent(path string) (string, error) {
+	parent := filepath.Dir(path)
+
+	for {
+		info, err := os.Stat(parent)
+		if err == nil {
+			if !info.IsDir() {
+				return "", fmt.Errorf("path[%s] is not a directory", parent)
+			}
+			return parent, nil
+		}
+
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+
+		next := filepath.Dir(parent)
+		if next == parent {
+			return "", fmt.Errorf("no existing parent for path[%s]", path)
+		}
+		parent = next
+	}
 }

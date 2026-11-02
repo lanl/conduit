@@ -51,6 +51,19 @@ var omitMissingOption = func(cmd *cobra.Command) (*anypb.Any, error) {
 	return omAny, err
 }
 
+var parentsOption = func(cmd *cobra.Command) (*anypb.Any, error) {
+	p, err := cmd.Flags().GetBool(ParentsFlag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parents flag: %v", err)
+	}
+	pAny, err := anypb.New(wrapperspb.Bool(p))
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert parents flag into a pb.any: %v", err)
+	}
+
+	return pAny, err
+}
+
 func init() {
 	cpCmd.Flags().BoolP(RecursiveFlag, "r", false, "copy directories recursively")
 	cpCmd.Flags().Bool(OmitMissingFlag, false, "omit any sources that don't exist")
