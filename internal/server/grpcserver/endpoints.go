@@ -1134,9 +1134,14 @@ func (s *ConduitServer) ReRunTransfers(ctx context.Context, reRunRequest *api.Re
 
 	for _, t := range transfers {
 		// remove transfer from rqlite
-		err = s.rm.RemoveTransfers([]string{t.GetTransferID()})
+		removed, err := s.rm.RemoveTransfers([]string{t.GetTransferID()})
 		if err != nil {
-			return nil, fmt.Errorf("failed to remove transfer[%v] from rqlite: %v", t.GetTransferID(), err)
+			return nil, fmt.Errorf("failed to remove transfer[%s] from rqlite: %w", t.GetTransferID(), err)
+		}
+
+		// Another server may have already claimed this transfer.
+		if removed == 0 {
+			continue
 		}
 
 		transfer := api.NewTransferDetails()

@@ -7,7 +7,8 @@ type RqliteResponse struct {
 }
 
 type RqliteResult struct {
-	Error   string     `json:"error"`
-	Columns []string   `json:"columns"`
-	Values  [][]string `json:"values"`
+	Error        string     `json:"error"`
+	Columns      []string   `json:"columns"`
+	Values       [][]string `json:"values"`
+	RowsAffected int64      `json:"rows_affected"`
 }

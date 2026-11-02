@@ -273,9 +273,9 @@ func (rm *RqliteManager) sendRequest(urlPath util.RqlitePath, sql string) (*Rqli
 }
 
 // removes transfers from rqlite
-func (rm *RqliteManager) RemoveTransfers(transferIDs []string) error {
+func (rm *RqliteManager) RemoveTransfers(transferIDs []string) (int64, error) {
 	if len(transferIDs) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// generate sql string
@@ -284,14 +284,18 @@ func (rm *RqliteManager) RemoveTransfers(transferIDs []string) error {
 	})
 	sql, _, err := ds.ToSQL()
 	if err != nil {
-		return fmt.Errorf("failed to generate sql command for transfers: %v", err)
+		return 0, fmt.Errorf("failed to generate sql command for transfers: %w", err)
 	}
 
 	// send sql to rqlite
-	_, err = rm.sendRequest(util.PathExecute, sql)
+	resp, err := rm.sendRequest(util.PathExecute, sql)
 	if err != nil {
-		return fmt.Errorf("failed to remove transfers from rqlite: %v", err)
+		return 0, fmt.Errorf("failed to remove transfers from rqlite: %w", err)
 	}
 
-	return nil
+	if len(resp.Results) != 1 {
+		return 0, fmt.Errorf("unexpected rqlite delete response")
+	}
+
+	return resp.Results[0].RowsAffected, nil
 }
