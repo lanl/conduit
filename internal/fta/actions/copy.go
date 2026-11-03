@@ -4,6 +4,7 @@ package actions
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -51,7 +52,30 @@ var omitMissingOption = func(cmd *cobra.Command) (*anypb.Any, error) {
 	return omAny, err
 }
 
+var parentsOption = func(cmd *cobra.Command) (*anypb.Any, error) {
+	p, err := cmd.Flags().GetString(ParentsFlag)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parents flag: %v", err)
+	}
+
+	// Validate mode if the flag was provided.
+	if cmd.Flags().Changed(ParentsFlag) {
+		if _, err := strconv.ParseUint(p, 8, 9); err != nil {
+			return nil, fmt.Errorf("invalid parents mode[%s]: %v", p, err)
+		}
+	}
+
+	pAny, err := anypb.New(wrapperspb.String(p))
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert parents flag into a pb.any: %v", err)
+	}
+
+	return pAny, nil
+}
+
 func init() {
 	cpCmd.Flags().BoolP(RecursiveFlag, "r", false, "copy directories recursively")
 	cpCmd.Flags().Bool(OmitMissingFlag, false, "omit any sources that don't exist")
+	cpCmd.Flags().String(ParentsFlag, "", "make parent directories of destination as needed (default mode: 700)")
+	cpCmd.Flags().Lookup(ParentsFlag).NoOptDefVal = "700"
 }

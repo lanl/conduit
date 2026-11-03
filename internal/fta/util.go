@@ -18,6 +18,7 @@ import (
 	"github.com/lanl/conduit/internal/logger"
 	"github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 const (
@@ -58,7 +59,7 @@ func ListenForKill(it proto.IncompleteTransfer, client *FTAClient) {
 }
 
 // getSrcAndDstValidationPlugins will get the validatino plugin for all sources and destination and verify the resolved paths still correlate to the plugin
-func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogger, sources []string, destination string) (sourcePlugins map[string]*plugin.PluginPathInfo, destinationPlugin *plugin.PluginPathInfo, _ *proto.FTAPluginErrors) {
+func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogger, sources []string, destination string, options map[string]*anypb.Any) (sourcePlugins map[string]*plugin.PluginPathInfo, destinationPlugin *plugin.PluginPathInfo, _ *proto.FTAPluginErrors) {
 	fscs, err := plugin.GetFSCsFromViper()
 	if err != nil {
 		return sourcePlugins, destinationPlugin, &proto.FTAPluginErrors{
@@ -85,7 +86,7 @@ func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogg
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		destinationPlugin, pathErr := getPathValidationPlugin(transferID, log, destination, destination, fscs, proto.LeaseType_DESTINATION)
+		destinationPlugin, pathErr := getPathValidationPlugin(transferID, log, destination, destination, fscs, proto.LeaseType_DESTINATION, options)
 		destPluginResults = &PluginResults{
 			PluginInfo: destinationPlugin,
 		}
@@ -105,7 +106,7 @@ func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogg
 		wg.Add(1)
 		go func(goSource string) {
 			defer wg.Done()
-			sourcePlugin, pathErr := getPathValidationPlugin(transferID, log, goSource, goSource, fscs, proto.LeaseType_SOURCE)
+			sourcePlugin, pathErr := getPathValidationPlugin(transferID, log, goSource, goSource, fscs, proto.LeaseType_SOURCE, options)
 			srcPluginResultsLock.Lock()
 			srcPluginResults[goSource] = &PluginResults{
 				PluginInfo: sourcePlugin,
@@ -156,7 +157,7 @@ func getSrcAndDstValidationPlugins(transferID uuid.UUID, log *logger.ConduitLogg
 }
 
 // getPathValidationPlugin is a recursive function that will find the validation plugin for a given path, initialize the plugin, check that it doesn't change with a resolved path, and find the correct plugin for any different resolved paths. It also verifies that the plugin has the validation capability
-func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, originalUserPath string, newUserPath string, fscs map[string]*plugin.FileSystemConfig, pathType proto.LeaseType) (*plugin.PluginPathInfo, *proto.FTAPathError) {
+func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, originalUserPath string, newUserPath string, fscs map[string]*plugin.FileSystemConfig, pathType proto.LeaseType, options map[string]*anypb.Any) (*plugin.PluginPathInfo, *proto.FTAPathError) {
 	fsn, fsc, pErr, err := plugin.GetFSCFromPath(newUserPath, fscs)
 	if err != nil {
 		return nil, &proto.FTAPathError{
@@ -182,14 +183,14 @@ func getPathValidationPlugin(transferID uuid.UUID, log *logger.ConduitLogger, or
 	pluginCaps := pathPlugin.Initialize(transferID, log)
 
 	// see if the resolved path is the same
-	ftaPath, symlink, pathError := pathPlugin.GetResolvedPath(newUserPath, pathType, fsc)
+	ftaPath, symlink, pathError := pathPlugin.GetResolvedPath(newUserPath, pathType, fsc, options)
 	if pathError != nil {
 		return nil, pathError
 	}
 
 	if symlink != "" {
 		log.Infof("destination plugin found a symlink while resolving path[%v]. Finding plugin for new path[%v]", newUserPath, symlink)
-		return getPathValidationPlugin(transferID, log, originalUserPath, symlink, fscs, pathType)
+		return getPathValidationPlugin(transferID, log, originalUserPath, symlink, fscs, pathType, options)
 	}
 
 	// verify validation is in the plugins capabilities
@@ -352,7 +353,7 @@ func removeDuplicates[T comparable](sliceList []T) []T {
 	return list
 }
 
-func globSource(transferID uuid.UUID, log *logger.ConduitLogger, source string, fscs map[string]*plugin.FileSystemConfig) ([]string, *proto.FTAPathError) {
+func globSource(transferID uuid.UUID, log *logger.ConduitLogger, source string, fscs map[string]*plugin.FileSystemConfig, options map[string]*anypb.Any) ([]string, *proto.FTAPathError) {
 	// No glob characters, nothing to do.
 	if !strings.ContainsAny(source, globChars) {
 		return []string{source}, nil
@@ -371,7 +372,7 @@ func globSource(transferID uuid.UUID, log *logger.ConduitLogger, source string, 
 
 	// Resolve the non-glob portion normally. This applies the
 	// user -> FTA mapping and resolves any symlinks in the prefix.
-	rootPlugin, pathErr := getPathValidationPlugin(transferID, log, globRoot, globRoot, fscs, proto.LeaseType_SOURCE)
+	rootPlugin, pathErr := getPathValidationPlugin(transferID, log, globRoot, globRoot, fscs, proto.LeaseType_SOURCE, options)
 	if pathErr != nil {
 		return []string{source}, pathErr
 	}

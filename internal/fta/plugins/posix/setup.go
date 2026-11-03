@@ -4,6 +4,8 @@ package posix
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
@@ -15,6 +17,33 @@ func (p *PosixPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInf
 
 	// pathInfo.TransferPath tells the transfer plugin what final path to use for its transfer
 	pathInfo.TransferPath = pathInfo.ResolvedFTAPath
+
+	// check for --mkdir-parents option only for destination
+	if pathType == proto.LeaseType_DESTINATION {
+		mode, parents, err := getParentsMode(options)
+		if err != nil {
+			return &proto.FTAPluginErrors{
+				Errors: []*proto.FTAPathError{{
+					LeasePath:  pathInfo.OriginalUserPath,
+					PErr:       proto.Error_ERROR_INVALID_INPUT,
+					ErrMessage: fmt.Sprintf("failed to get mkdir-parents flag: %v", err),
+				}},
+			}, pathInfo
+		}
+
+		if parents {
+			parentPath := filepath.Dir(pathInfo.ResolvedFTAPath)
+			if err := os.MkdirAll(parentPath, mode); err != nil {
+				return &proto.FTAPluginErrors{
+					Errors: []*proto.FTAPathError{{
+						LeasePath:  pathInfo.OriginalUserPath,
+						PErr:       proto.Error_ERROR_PERMISSIONS,
+						ErrMessage: fmt.Sprintf("failed to create destination parent directories[%s]: %v", parentPath, err),
+					}},
+				}, pathInfo
+			}
+		}
+	}
 
 	updateTransferProgress(&proto.ETCDStatusDetails{
 		PluginStatus: fmt.Sprintf("setup %v complete", pathInfo.OriginalUserPath),
