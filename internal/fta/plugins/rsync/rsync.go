@@ -35,11 +35,11 @@ func (p *RsyncPlugin) Initialize(transferID uuid.UUID, log *logger.ConduitLogger
 	}
 }
 
-func (p *RsyncPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *plugin.FileSystemConfig) (resolvedFTAPath string, foundSymlink string, _ *proto.FTAPathError) {
+func (p *RsyncPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *plugin.FileSystemConfig, options map[string]*anypb.Any) (resolvedFTAPath string, foundSymlink string, _ *proto.FTAPathError) {
 	return "", "", nil
 }
 
-func (p *RsyncPlugin) ValidateDestination(sourceBases []string, userDestination string, ftaDestination string, fsConfig *plugin.FileSystemConfig) (pluginErrors *proto.FTAPluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string) {
+func (p *RsyncPlugin) ValidateDestination(sourceBases []string, userDestination string, ftaDestination string, fsConfig *plugin.FileSystemConfig, options map[string]*anypb.Any) (pluginErrors *proto.FTAPluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string) {
 	return &proto.FTAPluginErrors{}, []string{}, []string{}, proto.DestInfo_DEST_NONE, make(map[string]*string)
 }
 

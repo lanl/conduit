@@ -67,4 +67,5 @@ var parentsOption = func(cmd *cobra.Command) (*anypb.Any, error) {
 func init() {
 	cpCmd.Flags().BoolP(RecursiveFlag, "r", false, "copy directories recursively")
 	cpCmd.Flags().Bool(OmitMissingFlag, false, "omit any sources that don't exist")
+	cpCmd.Flags().Bool(ParentsFlag, false, "make parent directories of destination as needed")
 }

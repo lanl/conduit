@@ -22,4 +22,5 @@ var mvCmd = &cobra.Command{
 func init() {
 	mvCmd.Flags().BoolP(RecursiveFlag, "r", false, "move directories recursively")
 	mvCmd.Flags().Bool(OmitMissingFlag, false, "omit any sources that don't exist")
+	mvCmd.Flags().Bool(ParentsFlag, false, "make parent directories of destination as needed")
 }
