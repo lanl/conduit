@@ -109,20 +109,15 @@ func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination 
 	}
 
 	// check for --mkdir-parents flag
-	parents := false
-	if opt, ok := options[actions.ParentsFlag]; ok {
-		var parentsFlag wrapperspb.BoolValue
-		if err := opt.UnmarshalTo(&parentsFlag); err != nil {
-			tErr := &proto.FTAPluginErrors{
-				Errors: []*proto.FTAPathError{{
-					LeasePath:  userDestination,
-					PErr:       proto.Error_ERROR_INVALID_INPUT,
-					ErrMessage: fmt.Sprintf("failed to unmarshal parents flag: %v", err),
-				}}}
-			return tErr, []string{}, []string{}, destInfo, make(map[string]*string)
-		}
-
-		parents = parentsFlag.GetValue()
+	_, parents, err := getParentsMode(options)
+	if err != nil {
+		tErr := &proto.FTAPluginErrors{
+			Errors: []*proto.FTAPathError{{
+				LeasePath:  userDestination,
+				PErr:       proto.Error_ERROR_INVALID_INPUT,
+				ErrMessage: fmt.Sprintf("failed to get mkdir-parents flag: %v", err),
+			}}}
+		return tErr, []string{}, []string{}, destInfo, make(map[string]*string)
 	}
 
 	// Multiple sources require a directory destination.
