@@ -216,7 +216,7 @@ func validateDestPermissions(log *logger.ConduitLogger, userDestination string, 
 			cleanDestParentPath, err = findExistingParent(d)
 			if err != nil {
 				tErr := fmt.Sprintf("failed to find existing parent for path[%v]: %v", d, err)
-				pathErrors = append(pathErrors, &proto.FTAPathError{LeasePath: userDestination, PErr: proto.Error_ERROR_CONDUIT_INTERNAL, ErrMessage: tErr})
+				pathErrors = append(pathErrors, &proto.FTAPathError{LeasePath: userDestination, PErr: proto.Error_ERROR_VALIDATION, ErrMessage: tErr})
 				continue
 			}
 		} else {
