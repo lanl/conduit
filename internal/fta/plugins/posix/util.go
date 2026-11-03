@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	proto "github.com/lanl/conduit/api"
@@ -22,17 +23,15 @@ func (p *PosixPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType,
 	// check for --mkdir-parents option only for destination
 	parents := false
 	if pathType == proto.LeaseType_DESTINATION {
-		if opt, ok := options[actions.ParentsFlag]; ok {
-			var parentsFlag wrapperspb.BoolValue
-			if err := opt.UnmarshalTo(&parentsFlag); err != nil {
-				return "", "", &proto.FTAPathError{
-					LeasePath:  userPath,
-					PErr:       proto.Error_ERROR_INVALID_INPUT,
-					ErrMessage: fmt.Sprintf("failed to unmarshal parents flag: %v", err),
-				}
+		_, opt, err := getParentsMode(options)
+		if err != nil {
+			return "", "", &proto.FTAPathError{
+				LeasePath:  userPath,
+				PErr:       proto.Error_ERROR_INVALID_INPUT,
+				ErrMessage: fmt.Sprintf("failed to get mkdir-parents flag: %v", err),
 			}
-			parents = parentsFlag.GetValue()
 		}
+		parents = opt
 	}
 
 	// get fsr for path
@@ -233,4 +232,27 @@ func findExistingParent(path string) (string, error) {
 		}
 		parent = next
 	}
+}
+
+func getParentsMode(options map[string]*anypb.Any) (os.FileMode, bool, error) {
+	opt, ok := options[actions.ParentsFlag]
+	if !ok {
+		return 0, false, nil
+	}
+
+	var parents wrapperspb.StringValue
+	if err := opt.UnmarshalTo(&parents); err != nil {
+		return 0, false, fmt.Errorf("failed to unmarshal parents flag: %v", err)
+	}
+
+	if parents.GetValue() == "" {
+		return 0, false, nil
+	}
+
+	mode, err := strconv.ParseUint(parents.GetValue(), 8, 9)
+	if err != nil {
+		return 0, false, fmt.Errorf("invalid parents mode[%s]: %v", parents.GetValue(), err)
+	}
+
+	return os.FileMode(mode), true, nil
 }

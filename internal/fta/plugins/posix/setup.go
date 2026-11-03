@@ -9,10 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func (p *PosixPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInfo, pathType proto.LeaseType, action string, options map[string]*anypb.Any, baseDest bool, updateTransferProgress plugin.UpdateTransferProgress) (*proto.FTAPluginErrors, *plugin.PluginPathInfo) {
@@ -22,29 +20,27 @@ func (p *PosixPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInf
 
 	// check for --mkdir-parents option only for destination
 	if pathType == proto.LeaseType_DESTINATION {
-		if opt, ok := options[actions.ParentsFlag]; ok {
-			var parents wrapperspb.BoolValue
-			if err := opt.UnmarshalTo(&parents); err != nil {
+		mode, parents, err := getParentsMode(options)
+		if err != nil {
+			return &proto.FTAPluginErrors{
+				Errors: []*proto.FTAPathError{{
+					LeasePath:  pathInfo.OriginalUserPath,
+					PErr:       proto.Error_ERROR_INVALID_INPUT,
+					ErrMessage: fmt.Sprintf("failed to get mkdir-parents flag: %v", err),
+				}},
+			}, pathInfo
+		}
+
+		if parents {
+			parentPath := filepath.Dir(pathInfo.ResolvedFTAPath)
+			if err := os.MkdirAll(parentPath, mode); err != nil {
 				return &proto.FTAPluginErrors{
 					Errors: []*proto.FTAPathError{{
 						LeasePath:  pathInfo.OriginalUserPath,
-						PErr:       proto.Error_ERROR_INVALID_INPUT,
-						ErrMessage: fmt.Sprintf("failed to unmarshal parents flag: %v", err),
+						PErr:       proto.Error_ERROR_PERMISSIONS,
+						ErrMessage: fmt.Sprintf("failed to create destination parent directories[%s]: %v", parentPath, err),
 					}},
 				}, pathInfo
-			}
-
-			if parents.GetValue() {
-				parentPath := filepath.Dir(pathInfo.ResolvedFTAPath)
-				if err := os.MkdirAll(parentPath, 0700); err != nil {
-					return &proto.FTAPluginErrors{
-						Errors: []*proto.FTAPathError{{
-							LeasePath:  pathInfo.OriginalUserPath,
-							PErr:       proto.Error_ERROR_PERMISSIONS,
-							ErrMessage: fmt.Sprintf("failed to create destination parent directories[%s]: %v", parentPath, err),
-						}},
-					}, pathInfo
-				}
 			}
 		}
 	}
