@@ -76,7 +76,7 @@ func (p *PosixPlugin) ValidateSource(pluginPathInfo *plugin.PluginPathInfo, acti
 }
 
 // ValidateDestination validates the destination and gets all resolved destinations. This assumes the ftaDestination is already resolved of symlinks
-func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination string, ftaDestination string, fsConfig *plugin.FileSystemConfig) (pluginErrors *proto.FTAPluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string) {
+func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination string, ftaDestination string, fsConfig *plugin.FileSystemConfig, options map[string]*anypb.Any) (pluginErrors *proto.FTAPluginErrors, userDestinations []string, resolvedFTADestinations []string, destInfo proto.DestInfo, pluginPathData map[string]*string) {
 	p.log.Debugf("posix plugin validating destination[%v](%v) with sources %v", userDestination, ftaDestination, userSources)
 
 	// get destinfo for destination to see if it's a directory or not
@@ -118,6 +118,23 @@ func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination 
 		return &proto.FTAPluginErrors{Errors: []*proto.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
 	}
 
+	// check for --parents flag
+	parents := false
+	if opt, ok := options[actions.ParentsFlag]; ok {
+		var parentsFlag wrapperspb.BoolValue
+		if err := opt.UnmarshalTo(&parentsFlag); err != nil {
+			tErr := &proto.FTAPluginErrors{
+				Errors: []*proto.FTAPathError{{
+					LeasePath:  userDestination,
+					PErr:       proto.Error_ERROR_INVALID_INPUT,
+					ErrMessage: fmt.Sprintf("failed to unmarshal parents flag: %v", err),
+				}}}
+			return tErr, []string{}, []string{}, destInfo, make(map[string]*string)
+		}
+
+		parents = parentsFlag.GetValue()
+	}
+
 	userDestinations = getUserDests(sourceBases, userDestination, destInfo)
 
 	resolvedFTADests := getResolvedFTADests(sourceBases, ftaDestination, destInfo)
@@ -125,7 +142,7 @@ func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination 
 
 	// validate that we have proper permissions
 	p.log.Debugf("validating permissions")
-	pathErrors := validateDestPermissions(p.log, userDestination, resolvedFTADests)
+	pathErrors := validateDestPermissions(p.log, userDestination, resolvedFTADests, parents)
 	if len(pathErrors) > 0 {
 		return &proto.FTAPluginErrors{Errors: pathErrors}, userDestinations, resolvedFTADests, destInfo, make(map[string]*string)
 	}
@@ -174,7 +191,7 @@ func getResolvedFTADests(sourceBases []string, resolvedFTADest string, destinfo 
 }
 
 // validateDestPermissions checks that we have write permission on all destination fta paths
-func validateDestPermissions(log *logger.ConduitLogger, userDestination string, ftaDestinations []string) []*proto.FTAPathError {
+func validateDestPermissions(log *logger.ConduitLogger, userDestination string, ftaDestinations []string, parentsFlag bool) []*proto.FTAPathError {
 	pathErrors := []*proto.FTAPathError{}
 
 	currUser := ""
@@ -187,7 +204,16 @@ func validateDestPermissions(log *logger.ConduitLogger, userDestination string, 
 
 	for _, d := range ftaDestinations {
 		// validate destination permissions
-		cleanDestParentPath := filepath.Dir(d)
+		var cleanDestParentPath string
+		if parentsFlag {
+			cleanDestParentPath, err = findExistingParent(d)
+			if err != nil {
+				tErr := fmt.Sprintf("failed to find existing parent for path[%v]: %v", d, err)
+				pathErrors = append(pathErrors, &proto.FTAPathError{LeasePath: userDestination, PErr: proto.Error_ERROR_CONDUIT_INTERNAL, ErrMessage: tErr})
+			}
+		} else {
+			cleanDestParentPath = filepath.Dir(d)
+		}
 		err := unix.Faccessat(
 			unix.AT_FDCWD,
 			cleanDestParentPath,

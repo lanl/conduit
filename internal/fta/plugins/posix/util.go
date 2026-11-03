@@ -11,13 +11,29 @@ import (
 	"strings"
 
 	proto "github.com/lanl/conduit/api"
+	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/lanl/conduit/internal/fta/plugin"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
-func (p *PosixPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *plugin.FileSystemConfig) (resolvedFTAPath string, foundSymlink string, _ *proto.FTAPathError) {
+func (p *PosixPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *plugin.FileSystemConfig, options map[string]*anypb.Any) (resolvedFTAPath string, foundSymlink string, _ *proto.FTAPathError) {
+	// check for --parents option only for destination
+	parents := false
+	if pathType == proto.LeaseType_DESTINATION {
+		if opt, ok := options[actions.ParentsFlag]; ok {
+			var parentsFlag wrapperspb.BoolValue
+			if err := opt.UnmarshalTo(&parentsFlag); err != nil {
+				p.log.Errorf("failed to unmarshal parents flag")
+			}
+
+			parents = parentsFlag.GetValue()
+		}
+	}
+
 	// get fsr for path
-	ftaPath, foundSymlink, pErr, err := ResolvePathWithConfig(userPath, pathType, fsc)
+	ftaPath, foundSymlink, pErr, err := ResolvePathWithConfig(userPath, pathType, fsc, parents)
 	if err != nil {
 		return ftaPath, foundSymlink, &proto.FTAPathError{LeasePath: userPath, PErr: pErr, ErrMessage: fmt.Sprintf("failed to get fs result for path[%v]: %v", userPath, err)}
 	}
@@ -26,7 +42,7 @@ func (p *PosixPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType,
 }
 
 // ResolvePathWithConfig returns the correct substituted paths for a given user path
-func ResolvePathWithConfig(cleanUserPath string, lt proto.LeaseType, fsc *plugin.FileSystemConfig) (ftaPath string, foundSymlink string, _ proto.Error, _ error) {
+func ResolvePathWithConfig(cleanUserPath string, lt proto.LeaseType, fsc *plugin.FileSystemConfig, parentsFlag bool) (ftaPath string, foundSymlink string, _ proto.Error, _ error) {
 	logrus.Debugf("using filesystem [%v] for %s[%v]", fsc.Name, lt, cleanUserPath)
 	logrus.Debugf("using filesystem config: %+v", fsc)
 
@@ -59,7 +75,7 @@ func ResolvePathWithConfig(cleanUserPath string, lt proto.LeaseType, fsc *plugin
 
 	logrus.Debugf("found user path prefix: %v", userPathPrefix)
 
-	foundAbsPath, finalPath, pErr, err := symWalk(userPathSuffix, subbedFTARootFSPath, userPathPrefix, lt)
+	foundAbsPath, finalPath, pErr, err := symWalk(userPathSuffix, subbedFTARootFSPath, userPathPrefix, lt, parentsFlag)
 	if err != nil {
 		return "", "", pErr, fmt.Errorf("failed to walk path for symlinks: %v", err)
 	}
@@ -85,7 +101,7 @@ func ResolvePathWithConfig(cleanUserPath string, lt proto.LeaseType, fsc *plugin
 // finalFTAPath: the final absolute fta path after following symlinks (excluding conduit staging symlinks)
 // PErr: the conduit error
 // err: the error message
-func symWalk(pathSuffix string, ftaPathPrefix string, userPathPrefix string, lt proto.LeaseType) (foundAbsPath, finalFTAPath string, pErr proto.Error, err error) {
+func symWalk(pathSuffix string, ftaPathPrefix string, userPathPrefix string, lt proto.LeaseType, parentsFlag bool) (foundAbsPath, finalFTAPath string, pErr proto.Error, err error) {
 	// separate the path into a slice containing each section separated by the path separator ('/' for linux)
 	pathSlice := strings.Split(filepath.Clean(pathSuffix), string(os.PathSeparator))
 	logrus.Debugf("slice for path[%v]: %v", pathSuffix, pathSlice)
@@ -98,7 +114,7 @@ func symWalk(pathSuffix string, ftaPathPrefix string, userPathPrefix string, lt 
 		fi, err := os.Lstat(currentFullPath)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				if lt == proto.LeaseType_DESTINATION {
+				if lt == proto.LeaseType_DESTINATION && parentsFlag {
 					// Allow missing destination components. Setup may create
 					// the parent directories if --parents was specified.
 					return "", filepath.Join(ftaPathPrefix, filepath.Join(pathSlice...)), proto.Error_ERROR_NONE, nil

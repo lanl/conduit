@@ -12,7 +12,7 @@ const (
 	Action_MOVE     = "MOVE"
 	RecursiveFlag   = "recursive"
 	OmitMissingFlag = "omit-missing"
-	ParentsFlag     = "parents"
+	ParentsFlag     = "mkdir-parents"
 )
 
 type PluginAction struct {

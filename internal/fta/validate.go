@@ -46,7 +46,7 @@ func StartPluginValidate(log *logger.ConduitLogger, t *proto.TransferDetails, no
 
 	globbedSources := []string{}
 	for _, s := range t.GetSource() {
-		gs, pathErr := globSource(transferID, log, s, fscs)
+		gs, pathErr := globSource(transferID, log, s, fscs, t.GetOptions())
 		if pathErr != nil {
 			pluginErrors.Warnings = append(pluginErrors.Warnings, pathErr)
 		}
@@ -70,7 +70,7 @@ func StartPluginValidate(log *logger.ConduitLogger, t *proto.TransferDetails, no
 		return pluginData, proto.DestInfo_DEST_NONE, pluginErrors
 	}
 
-	srcPlugins, dstPlugin, pluginErrs := getSrcAndDstValidationPlugins(transferID, log, globbedSources, t.GetDestination())
+	srcPlugins, dstPlugin, pluginErrs := getSrcAndDstValidationPlugins(transferID, log, globbedSources, t.GetDestination(), t.GetOptions())
 
 	pluginErrors.Errors = append(pluginErrors.Errors, pluginErrs.Errors...)
 	pluginErrors.Warnings = append(pluginErrors.Warnings, pluginErrs.Warnings...)
@@ -152,7 +152,7 @@ func StartPluginValidate(log *logger.ConduitLogger, t *proto.TransferDetails, no
 	log.Debugf("destination: %v", t.GetDestination())
 	log.Debugf("dstPlugin.ResolvedFTAPath: %v", dstPlugin.ResolvedFTAPath)
 	log.Debugf("dstPlugin.FSC: %v", dstPlugin.FSC)
-	destPluginErrors, userDestinations, resolvedFTADestinations, destInfo, ppd = dstPlugin.Plugin.ValidateDestination(filteredSources, t.GetDestination(), dstPlugin.ResolvedFTAPath, dstPlugin.FSC)
+	destPluginErrors, userDestinations, resolvedFTADestinations, destInfo, ppd = dstPlugin.Plugin.ValidateDestination(filteredSources, t.GetDestination(), dstPlugin.ResolvedFTAPath, dstPlugin.FSC, t.GetOptions())
 	for i, d := range userDestinations {
 		pluginData.DestinationsPluginInfo[d] = &plugin.PluginPathInfo{
 			OriginalUserPath: t.GetDestination(),
