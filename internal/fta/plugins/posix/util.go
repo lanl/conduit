@@ -19,15 +19,18 @@ import (
 )
 
 func (p *PosixPlugin) GetResolvedPath(userPath string, pathType proto.LeaseType, fsc *plugin.FileSystemConfig, options map[string]*anypb.Any) (resolvedFTAPath string, foundSymlink string, _ *proto.FTAPathError) {
-	// check for --parents option only for destination
+	// check for --mkdir-parents option only for destination
 	parents := false
 	if pathType == proto.LeaseType_DESTINATION {
 		if opt, ok := options[actions.ParentsFlag]; ok {
 			var parentsFlag wrapperspb.BoolValue
 			if err := opt.UnmarshalTo(&parentsFlag); err != nil {
-				p.log.Errorf("failed to unmarshal parents flag")
+				return "", "", &proto.FTAPathError{
+					LeasePath:  userPath,
+					PErr:       proto.Error_ERROR_INVALID_INPUT,
+					ErrMessage: fmt.Sprintf("failed to unmarshal parents flag: %v", err),
+				}
 			}
-
 			parents = parentsFlag.GetValue()
 		}
 	}
@@ -116,7 +119,7 @@ func symWalk(pathSuffix string, ftaPathPrefix string, userPathPrefix string, lt 
 			if errors.Is(err, os.ErrNotExist) {
 				if lt == proto.LeaseType_DESTINATION && parentsFlag {
 					// Allow missing destination components. Setup may create
-					// the parent directories if --parents was specified.
+					// the parent directories if --mkdir-parents was specified.
 					return "", filepath.Join(ftaPathPrefix, filepath.Join(pathSlice...)), proto.Error_ERROR_NONE, nil
 				}
 

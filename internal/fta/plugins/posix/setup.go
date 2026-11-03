@@ -20,7 +20,7 @@ func (p *PosixPlugin) Setup(transferID uuid.UUID, pathInfo *plugin.PluginPathInf
 	// pathInfo.TransferPath tells the transfer plugin what final path to use for its transfer
 	pathInfo.TransferPath = pathInfo.ResolvedFTAPath
 
-	// check for --parents option only for destination
+	// check for --mkdir-parents option only for destination
 	if pathType == proto.LeaseType_DESTINATION {
 		if opt, ok := options[actions.ParentsFlag]; ok {
 			var parents wrapperspb.BoolValue

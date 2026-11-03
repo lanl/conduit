@@ -108,17 +108,7 @@ func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination 
 		}
 	}
 
-	// the dest must exist and be a directory if multiple sources are provided
-	if len(sourceBases) > 1 && (destInfo == proto.DestInfo_DEST_NOT_EXIST || destInfo == proto.DestInfo_DEST_NOT_DIR) {
-		tErr := &proto.FTAPathError{
-			LeasePath:  userDestination,
-			ErrMessage: "destination must exist and be a directory if multiple sources are specified",
-			PErr:       proto.Error_ERROR_VALIDATION,
-		}
-		return &proto.FTAPluginErrors{Errors: []*proto.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
-	}
-
-	// check for --parents flag
+	// check for --mkdir-parents flag
 	parents := false
 	if opt, ok := options[actions.ParentsFlag]; ok {
 		var parentsFlag wrapperspb.BoolValue
@@ -133,6 +123,23 @@ func (p *PosixPlugin) ValidateDestination(userSources []string, userDestination 
 		}
 
 		parents = parentsFlag.GetValue()
+	}
+
+	// Multiple sources require a directory destination.
+	// With --mkdir-parents, a missing destination can be created during setup.
+	if len(sourceBases) > 1 {
+		if destInfo == proto.DestInfo_DEST_NOT_DIR || (destInfo == proto.DestInfo_DEST_NOT_EXIST && !parents) {
+			tErr := &proto.FTAPathError{
+				LeasePath:  userDestination,
+				ErrMessage: "destination must exist and be a directory if multiple sources are specified",
+				PErr:       proto.Error_ERROR_VALIDATION,
+			}
+			return &proto.FTAPluginErrors{Errors: []*proto.FTAPathError{tErr}}, []string{}, []string{}, destInfo, make(map[string]*string)
+		}
+
+		if destInfo == proto.DestInfo_DEST_NOT_EXIST {
+			destInfo = proto.DestInfo_DEST_IS_DIR
+		}
 	}
 
 	userDestinations = getUserDests(sourceBases, userDestination, destInfo)
@@ -210,6 +217,7 @@ func validateDestPermissions(log *logger.ConduitLogger, userDestination string, 
 			if err != nil {
 				tErr := fmt.Sprintf("failed to find existing parent for path[%v]: %v", d, err)
 				pathErrors = append(pathErrors, &proto.FTAPathError{LeasePath: userDestination, PErr: proto.Error_ERROR_CONDUIT_INTERNAL, ErrMessage: tErr})
+				continue
 			}
 		} else {
 			cleanDestParentPath = filepath.Dir(d)
