@@ -66,6 +66,13 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 		return nil, fmt.Errorf("OAuth discovery URL, client ID, and client secret are required")
 	}
 
+	expectedAudience := strings.TrimSpace(
+		viper.GetString(defaults.ConfigOAuthAudienceKey),
+	)
+	if expectedAudience == "" {
+		return nil, fmt.Errorf("OAuth expected audience is required for remote MCP")
+	}
+
 	authCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -82,7 +89,7 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 		UseUserInfoFallback:          viper.GetBool(defaults.ConfigOAuthUserFallbackKey),
 		TLSConfig:                    &tls.Config{RootCAs: oauthCertPool, MinVersion: tls.VersionTLS12},
 		ViperIntrospectionAuthMethod: viper.GetString(defaults.ConfigOAuthIntrospectionAuthMethodKey),
-		ExpectedAudience:             viper.GetString(defaults.ConfigOAuthAudienceKey),
+		ExpectedAudience:             expectedAudience,
 	}, l)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP OAuth validator: %w", err)
