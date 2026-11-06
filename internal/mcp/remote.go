@@ -45,7 +45,7 @@ type remoteConfig struct {
 	tokenExpirationFallback time.Duration
 }
 
-// CreateMCPServer preserves the original remote constructor and its OAuth
+// CreateMCPServer creates a remote mcp server with an OAuth
 // frontend / mTLS backend configuration. No CLI Kerberos path is used here.
 func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.Certificate, certPool *x509.CertPool, conduitAddr string) (*MCPServer, error) {
 	if log == nil {
@@ -69,6 +69,7 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 	authCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	// Load OAuth CA certificate pool (starts with system pool, adds custom CA if configured)
 	oauthCertPool, err := cliutil.GetCertPoolFromViper(defaults.ConfigOAuthCAKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load OAuth CA certificate: %w", err)
@@ -91,14 +92,17 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 	if publicBaseURL == "" {
 		return nil, fmt.Errorf("MCP public base URL is required")
 	}
+
 	resourcePath := viper.GetString(defaults.ConfigMCPResourcePathKey)
 	if resourcePath == "" {
 		resourcePath = DefaultResourcePath
 	}
+
 	resourceMetadataPath := viper.GetString(defaults.ConfigMCPResourceMetadataPathKey)
 	if resourceMetadataPath == "" {
 		resourceMetadataPath = DefaultMetadataPath
 	}
+
 	if !strings.HasPrefix(resourcePath, "/") || !strings.HasPrefix(resourceMetadataPath, "/") {
 		return nil, fmt.Errorf("MCP resource paths must start with /")
 	}
@@ -108,7 +112,6 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 		fallbackTTL = DefaultTokenFallbackTTL
 	}
 
-	// This is deliberately the original remote service-certificate dialer.
 	conn, conduitClient, err := httpserver.GetGRPCClient(l, clientCert, certPool, conduitAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get remote Conduit gRPC client: %w", err)
@@ -119,6 +122,7 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 		_ = conn.Close()
 		return nil, err
 	}
+
 	m.remote = &remoteConfig{
 		addr:                    mcpAddr,
 		mux:                     http.NewServeMux(),
@@ -132,6 +136,7 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 		resourceMetadataURL:     publicBaseURL + resourceMetadataPath,
 		tokenExpirationFallback: fallbackTTL,
 	}
+
 	m.registerRemoteMCPRoutes()
 
 	corsHandler := handlers.CORS(
@@ -155,12 +160,17 @@ func CreateMCPServer(log *logger.ConduitLogger, mcpAddr string, clientCert *tls.
 			_ = m.Close()
 			return nil, fmt.Errorf("both TLS certificate and key must be configured")
 		}
+
 		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 		if err != nil {
 			_ = m.Close()
 			return nil, err
 		}
-		m.remote.httpServer.TLSConfig = &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}
+
+		m.remote.httpServer.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{cert},
+			MinVersion:   tls.VersionTLS12,
+		}
 	}
 
 	return m, nil
@@ -173,11 +183,14 @@ func (m *MCPServer) registerRemoteMCPRoutes() {
 		AuthorizationServers: []string{r.validator.Issuer()},
 		ScopesSupported:      r.supportedScopes,
 	}
+
 	r.mux.Handle(r.resourceMetadataPath, mcpauth.ProtectedResourceMetadataHandler(metadata))
 
 	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
 		return m.mcpServer
-	}, &mcpsdk.StreamableHTTPOptions{SessionTimeout: 30 * time.Minute})
+	}, &mcpsdk.StreamableHTTPOptions{
+		SessionTimeout: 30 * time.Minute,
+	})
 
 	protected := mcpauth.RequireBearerToken(m.verifyToken, &mcpauth.RequireBearerTokenOptions{
 		ResourceMetadataURL: r.resourceMetadataURL,
@@ -210,8 +223,10 @@ func (m *MCPServer) StartMCPServer() error {
 	} else {
 		err = r.httpServer.ListenAndServe()
 	}
+
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("MCP server error: %w", err)
 	}
+
 	return nil
 }

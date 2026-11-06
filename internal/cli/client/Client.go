@@ -56,7 +56,7 @@ type DialOptions struct {
 	NonInteractive bool
 }
 
-// NewClient preserves the existing API for ordinary CLI commands.
+// NewClient creates a new ConduitClient
 func NewClient(logger *logrus.Logger, quiet bool, certPath string, keyPath string) (*ConduitClient, error) {
 	conn, grpcClient, err := DialClient(logger, DialOptions{
 		CertPath: certPath,
