@@ -66,7 +66,9 @@ func newMCPServer(log *logger.ConduitLogger, conn *grpc.ClientConn, client proto
 // an MCP tool parameter. Remotely it is the OAuth-authenticated user.
 func (m *MCPServer) requestUsername(ctx context.Context, req *mcpsdk.CallToolRequest) (string, error) {
 	if m.localUser != "" {
-		return m.localUser, nil
+		// The backend authenticates local MCP requests using the CLI's
+		// Kerberos ticket or user mTLS certificate.
+		return "", nil
 	}
 
 	// The MCP SDK attaches token information to each tool request.
