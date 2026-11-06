@@ -6,13 +6,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/cli/client"
-	"github.com/lanl/conduit/internal/cli/util"
 	"github.com/lanl/conduit/internal/version"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // versionCmd represents the version command
@@ -28,19 +24,7 @@ var versionCmd = &cobra.Command{
 			logger.SetLevel(logrus.DebugLevel)
 		}
 
-		clientCertKeyBundle, err := cmd.Flags().GetString("cert-key-bundle")
-		if err != nil {
-			fmt.Printf("failed to get cert-key-bundle flag: %v\n", err)
-			os.Exit(1)
-		}
-		clientCert, clientKey, err := util.GetUserCertAndKey(viper.GetString(defaults.ConfigClientCertKey), viper.GetString(defaults.ConfigClientKeyKey), clientCertKeyBundle, defaults.DefaultBundlePath)
-		if err != nil {
-			fmt.Printf("failed to get client cert and key: %v\n", err)
-			os.Exit(1)
-		}
-		logger.Debugf("using user cert [%v] and key [%v]", clientCert, clientKey)
-
-		client, err := client.NewClient(logger, quiet, clientCert, clientKey)
+		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
 			fmt.Printf("failed to check conduit-server version: %v\n", err)
 			os.Exit(1)

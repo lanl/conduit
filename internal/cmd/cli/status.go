@@ -9,12 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/cli/client"
 	"github.com/lanl/conduit/internal/cli/processing"
 	pp "github.com/lanl/conduit/internal/cli/progressprinter"
 	"github.com/lanl/conduit/internal/cli/querygen"
-	"github.com/lanl/conduit/internal/cli/util"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -83,20 +80,7 @@ var statusCmd = &cobra.Command{
 			queryStrings = args
 		}
 
-		clientCertKeyBundle, err := cmd.Flags().GetString("cert-key-bundle")
-		if err != nil {
-			fmt.Printf("failed to get cert-key-bundle flag: %v\n", err)
-			os.Exit(1)
-		}
-		clientCert, clientKey, err := util.GetUserCertAndKey(viper.GetString(defaults.ConfigClientCertKey), viper.GetString(defaults.ConfigClientKeyKey), clientCertKeyBundle, defaults.DefaultBundlePath)
-		if err != nil {
-			fmt.Printf("failed to get client cert and key: %v\n", err)
-			os.Exit(1)
-		}
-		logger.Debugf("using user cert [%v] and key [%v]", clientCert, clientKey)
-
-		// Create client to send the gRPC request
-		cc, err := client.NewClient(logger, quiet, clientCert, clientKey)
+		cc, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
 			fmt.Printf("failed to create client: %v\n", err)
 			os.Exit(1)
