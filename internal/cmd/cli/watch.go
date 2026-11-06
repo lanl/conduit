@@ -43,7 +43,7 @@ var watchCmd = &cobra.Command{
 
 		cc, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			return fmt.Errorf("failed to create client: %v", err)
+			return err
 		}
 		defer cc.Close()
 

@@ -135,19 +135,25 @@ func (m *MCPServer) StartLocalMCPHTTP(ctx context.Context, addr string, infoOut 
 		return fmt.Errorf("failed to print local MCP connection information: %w", err)
 	}
 
-	finished := make(chan struct{})
+	serveDone := make(chan struct{})
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
+
 		select {
 		case <-ctx.Done():
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = httpServer.Shutdown(shutdownCtx)
-		case <-finished:
+
+		case <-serveDone:
 		}
 	}()
 
 	err = httpServer.Serve(listener)
-	close(finished)
+	close(serveDone)
+	<-shutdownDone
+
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("local MCP HTTP server: %w", err)
 	}
