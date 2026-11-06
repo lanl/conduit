@@ -31,7 +31,7 @@ import (
 func CreateLocalMCPServer(log *logger.ConduitLogger, conn *grpc.ClientConn, client proto.ConduitApiClient) (*MCPServer, error) {
 	account, err := user.Current()
 	if err != nil {
-		return nil, fmt.Errorf("determine current OS user: %w", err)
+		return nil, fmt.Errorf("failed to determine current OS user: %w", err)
 	}
 	username := strings.TrimSpace(account.Username)
 	if username == "" {
@@ -53,8 +53,10 @@ func (m *MCPServer) StartLocalMCPStdio(ctx context.Context) error {
 
 // StartLocalMCPHTTP exposes the same local tools over a loopback-only HTTP
 // endpoint with a random per-process bearer token. It prints the endpoint and
-// token to infoOut BEFORE blocking in Serve. Pass the CLI's stderr writer so
-// the token is visible to the invoking user without interfering with stdio.
+// token to infoOut before blocking in Serve.
+//
+// Unlike stdio, HTTP does not use stdout for MCP protocol messages, so normal
+// CLI output is permitted.
 //
 // The CLI process and its Conduit backend credentials must remain alive while
 // clients use the HTTP endpoint. This mode is not intended for remote exposure.
@@ -81,13 +83,13 @@ func (m *MCPServer) StartLocalMCPHTTP(ctx context.Context, addr string, infoOut 
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-		return fmt.Errorf("listen for local MCP HTTP: %w", err)
+		return fmt.Errorf("failed to listen for local MCP HTTP: %w", err)
 	}
 	defer listener.Close()
 
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
-		return fmt.Errorf("generate local MCP bearer token: %w", err)
+		return fmt.Errorf("failed to generate local MCP bearer token: %w", err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(secret)
 
@@ -130,7 +132,7 @@ func (m *MCPServer) StartLocalMCPHTTP(ctx context.Context, addr string, infoOut 
 
 	endpoint := "http://" + listener.Addr().String() + DefaultResourcePath
 	if _, err := fmt.Fprintf(infoOut, "Local MCP endpoint: %s\nBearer token: %s\n", endpoint, token); err != nil {
-		return fmt.Errorf("print local MCP connection information: %w", err)
+		return fmt.Errorf("failed to print local MCP connection information: %w", err)
 	}
 
 	finished := make(chan struct{})

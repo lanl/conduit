@@ -16,6 +16,7 @@ func (m *MCPServer) verifyToken(ctx context.Context, token string, _ *http.Reque
 	if m.remote == nil || m.remote.validator == nil {
 		return nil, mcpauth.ErrInvalidToken
 	}
+
 	p, err := m.remote.validator.ValidateBearerToken(ctx, token, conduitauth.ValidateOptions{})
 	if err != nil {
 		m.log.Errorf("MCP token validation failed: %v", err)

@@ -15,11 +15,11 @@ import (
 
 // cliClientCredentials uses exactly the same cert/bundle resolution as
 // describe, cp, and other CLI commands. The cert-key-bundle flag should be
-// inherited from the root command (as it is in describe today).
+// inherited from the root command.
 func cliClientCredentials(cmd *cobra.Command) (string, string, error) {
 	bundle, err := cmd.Flags().GetString("cert-key-bundle")
 	if err != nil {
-		return "", "", fmt.Errorf("get cert-key-bundle flag: %w", err)
+		return "", "", fmt.Errorf("failed to get cert-key-bundle flag: %w", err)
 	}
 
 	cert, key, err := util.GetUserCertAndKey(
@@ -29,13 +29,12 @@ func cliClientCredentials(cmd *cobra.Command) (string, string, error) {
 		defaults.DefaultBundlePath,
 	)
 	if err != nil {
-		return "", "", fmt.Errorf("resolve client certificate and key: %w", err)
+		return "", "", fmt.Errorf("failed to resolve client certificate and key: %w", err)
 	}
 	return cert, key, nil
 }
 
-// newCLIClient makes the shared certificate configuration reusable in regular
-// CLI commands. Their public client.NewClient API is unchanged.
+// newCLIClient gets the mtls cert from the user's flags and returns a conduit client
 func newCLIClient(cmd *cobra.Command, log *logrus.Logger, quiet bool) (*client.ConduitClient, error) {
 	cert, key, err := cliClientCredentials(cmd)
 	if err != nil {

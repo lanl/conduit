@@ -24,9 +24,6 @@ var mcpCmd = &cobra.Command{
 	Short: "Run an MCP server using the current user's Conduit credentials",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		// Cobra and all other CLI diagnostics must not enter the MCP stdout pipe.
-		cmd.SetOut(cmd.ErrOrStderr())
-
 		if transport != "stdio" && transport != "http" {
 			return fmt.Errorf("invalid MCP transport %q (expected stdio or http)", transport)
 		}
@@ -69,14 +66,17 @@ var mcpCmd = &cobra.Command{
 			_ = conn.Close()
 			return err
 		}
-		// The MCP server owns and closes conn after its Run/Serve returns.
 
+		// The MCP server owns and closes conn after its Run/Serve returns.
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		if transport == "stdio" {
+			cmd.SetOut(cmd.ErrOrStderr())
 			return srv.StartLocalMCPStdio(ctx)
 		}
-		return srv.StartLocalMCPHTTP(ctx, address, cmd.ErrOrStderr())
+
+		// HTTP transport can use stdout normally.
+		return srv.StartLocalMCPHTTP(ctx, address, cmd.OutOrStdout())
 	},
 }
 
