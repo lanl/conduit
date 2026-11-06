@@ -133,9 +133,8 @@ func attachRunCommand(pluginAction *actions.PluginAction) {
 		}
 
 		if !background && !skipValidation {
-			watchCmd.Run(cmd, []string{td.GetTransferID()})
+			return watchCmd.RunE(cmd, []string{td.GetTransferID()})
 		}
-
 		return nil
 	}
 
