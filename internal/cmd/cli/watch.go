@@ -21,15 +21,6 @@ var (
 	watchCmdLimitNum int // Placeholder for '-n'
 )
 
-// Error: at least one transfer failed
-type ErrXferFailed int
-
-func (e ErrXferFailed) Error() string {
-	return "One or more transfers failed"
-}
-
-var EXFERFAILED = ErrXferFailed(1)
-
 var watchCmd = &cobra.Command{
 	Use:   "watch TRANSFER_ID ...",
 	Short: "watch the status of one or more transfers",
@@ -121,6 +112,10 @@ var watchCmd = &cobra.Command{
 		// Send gRPC request to watch transfer, getting back:
 		// the watch client object, the watch cancel function, and any error
 		wc, wCancel, err := cc.WatchStatus(tIDs, providedUser)
+		if err != nil {
+			return fmt.Errorf("watch: failed to watch transfers: %w", err)
+		}
+		defer wCancel()
 
 		go func() {
 			<-wc.Context().Done()
