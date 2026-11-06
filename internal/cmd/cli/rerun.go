@@ -4,7 +4,6 @@ package clicmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -32,7 +31,7 @@ var rerunCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -41,15 +40,14 @@ var rerunCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
+		defer client.Close()
 
 		// the args function already validated the uuids (args)
 		mtd, err := client.ReRunTransfers(args)
 		if err != nil {
-			fmt.Printf("rerun request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("rerun request failed: %v", err)
 		}
 
 		tids := []string{}
@@ -58,11 +56,11 @@ var rerunCmd = &cobra.Command{
 		}
 
 		if len(tids) == 0 {
-			fmt.Println("no transfers found")
-			os.Exit(1)
+			return fmt.Errorf("no transfers found")
 		}
 
 		fmt.Printf("successfully reran transfers: %v\n", tids)
+		return nil
 	},
 }
 

@@ -4,7 +4,6 @@ package clicmd
 
 import (
 	"fmt"
-	"os"
 
 	proto "github.com/lanl/conduit/api"
 	"github.com/sirupsen/logrus"
@@ -29,7 +28,7 @@ var serverStartCmd = &cobra.Command{
 	Short:  "starts the conduit server",
 	Long:   `This subcommand starts the conduit server so it will start progressing transfers again`,
 	Hidden: false,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -38,17 +37,18 @@ var serverStartCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
+		defer client.Close()
 
 		resp, err := client.ServerControl(proto.ServerControlAction_SERVER_CONTROL_START)
 		if err != nil {
-			fmt.Printf("server start request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("server start request failed: %v", err)
 		} else {
 			fmt.Printf("successfully started conduit server. current state: %s\n", resp.GetServerState())
 		}
+
+		return nil
 	},
 }
 
@@ -57,7 +57,7 @@ var serverDrainCmd = &cobra.Command{
 	Short:  "drains the conduit server",
 	Long:   `This subcommand drains the conduit server so it will progress currently queued transfers but will not progress any that are newly submitted. Note that this only works if all conduit instances for a cluster are draining. Use 'stop' to safely stop a single conduit instance`,
 	Hidden: false,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -65,17 +65,18 @@ var serverDrainCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
+		defer client.Close()
 
 		resp, err := client.ServerControl(proto.ServerControlAction_SERVER_CONTROL_DRAIN)
 		if err != nil {
-			fmt.Printf("server drain request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("server drain request failed: %v", err)
 		} else {
 			fmt.Printf("successfully started draining conduit server. current state: %s\n", resp.GetServerState())
 		}
+
+		return nil
 	},
 }
 
@@ -84,7 +85,7 @@ var serverStatusCmd = &cobra.Command{
 	Short:  "get conduit server state",
 	Long:   `This subcommand will retrieve the current state of the conduit server`,
 	Hidden: false,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -92,9 +93,9 @@ var serverStatusCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
+		defer client.Close()
 
 		resp, err := client.ServerControl(proto.ServerControlAction_SERVER_CONTROL_STATUS)
 		if err != nil {
@@ -105,8 +106,7 @@ var serverStatusCmd = &cobra.Command{
 
 		schedResp, err := client.SchedulerInfo()
 		if err != nil {
-			fmt.Printf("server scheduler request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("server scheduler request failed: %v", err)
 		} else {
 			mo := protojson.MarshalOptions{
 				Multiline:       true,
@@ -127,6 +127,7 @@ var serverStatusCmd = &cobra.Command{
 			fmt.Printf("conduit scheduler state:\n%+v\n", string(srBytes))
 		}
 
+		return nil
 	},
 }
 

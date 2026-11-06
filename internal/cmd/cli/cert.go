@@ -21,7 +21,7 @@ var certCmd = &cobra.Command{
 	Short:  "gets a cert for the user to use for authentication",
 	Long:   `This command authenticates with conduit using kerberos or a TLS certificate and retreives a cert for the provided user`,
 	Hidden: false,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -30,23 +30,18 @@ var certCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			logger.Fatalf("Failed to create client: %v", err)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
+		defer client.Close()
 
 		resp, err := client.GetCert(providedUser)
 		if err != nil {
-			fmt.Printf("cert request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("cert request failed: %v", err)
 		}
 
 		outputPath, err := cmd.Flags().GetString("output")
 		if err != nil {
-			fmt.Printf("failed to get output flag: %v", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to get output flag: %v", err)
 		}
 
 		// if the user hasn't changed the default output path, then find the users home directory
@@ -54,8 +49,7 @@ var certCmd = &cobra.Command{
 			// get the users home directory
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Printf("failed to get users home directory: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("failed to get users home directory: %v", err)
 			}
 
 			outputPath = filepath.Join(homeDir, defaults.DefaultBundleName)
@@ -67,16 +61,14 @@ var certCmd = &cobra.Command{
 		} else if errors.Is(err, os.ErrNotExist) {
 			fmt.Printf("writing keypair to [%s]\n", outputPath)
 		} else {
-			fmt.Printf("failed to check for existing keypair at [%s]: %v\n", outputPath, err)
-			os.Exit(1)
+			return fmt.Errorf("failed to check for existing keypair at [%s]: %v", outputPath, err)
 		}
 
 		// Write the data to the file
 		permissions := 0600
 		err = os.WriteFile(outputPath, resp.GetCert(), os.FileMode(permissions))
 		if err != nil {
-			fmt.Printf("failed to write keypair to file: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to write keypair to file: %v", err)
 		}
 
 		// print useful conduit information
@@ -90,6 +82,7 @@ var certCmd = &cobra.Command{
 			fmt.Printf("Conduit CA Path: %s\n", caPath)
 		}
 
+		return nil
 	},
 }
 

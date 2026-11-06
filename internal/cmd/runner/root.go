@@ -27,7 +27,7 @@ var (
 		Use:   "conduit-runner",
 		Short: "start the conduit runner",
 		Long:  `start the conduit runner`,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 
 			log := logger.NewConduitLogger(logrus.InfoLevel, "")
 			if debug {
@@ -49,7 +49,7 @@ var (
 			// Creating internal cert manager
 			icm, err := pki.NewInternalCertManager(log, caCertPath, caKeyPath, serverIPs, serverHostnames)
 			if err != nil {
-				log.Fatalf("failed to create cert manager: %v", err)
+				return fmt.Errorf("failed to create cert manager: %v", err)
 			}
 
 			cm := &pki.CertManager{
@@ -60,18 +60,18 @@ var (
 			log.Info("getting etcd client tls cert")
 			tlsCert, err := icm.GetETCDClientTLSCert()
 			if err != nil {
-				log.Fatalf("failed to get tls cert for etcd client: %v", err)
+				return fmt.Errorf("failed to get tls cert for etcd client: %v", err)
 			}
 
 			log.Info("creating etcd cert pool")
 			certPool, err := cm.GetCertPool(pki.INTERNAL)
 			if err != nil {
-				log.Fatalf("Failed to get cert pool for server cert: %v", err)
+				return fmt.Errorf("Failed to get cert pool for server cert: %v", err)
 			}
 
 			endpoints, err := util.GetEtcdEndpointsFromViper()
 			if err != nil {
-				log.Fatalf("failed to get etcd endpoints from config: %v", err)
+				return fmt.Errorf("failed to get etcd endpoints from config: %v", err)
 			}
 
 			em := etcd.NewETCDManager(log, tlsCert, certPool, endpoints)
@@ -80,10 +80,10 @@ var (
 			runner := internal.NewRunner(log, icm, em)
 			err = runner.StartRunner()
 			if err != nil {
-				log.Fatalf("failed to start runner: %v", err)
+				return fmt.Errorf("failed to start runner: %v", err)
 			}
 
-			os.Exit(0)
+			return nil
 		},
 	}
 )

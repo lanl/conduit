@@ -194,7 +194,7 @@ var describeCmd = &cobra.Command{
 	Args: func(cmd *cobra.Command, args []string) error {
 		return IsValidOutputFormat()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -209,8 +209,9 @@ var describeCmd = &cobra.Command{
 
 		cc, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			logger.Fatalf("Failed to create client: %v", err)
+			return fmt.Errorf("Failed to create client: %v", err)
 		}
+		defer cc.Close()
 
 		doneChan := make(chan bool)
 		if !quiet {
@@ -231,7 +232,7 @@ var describeCmd = &cobra.Command{
 		}
 		mtd, err = cc.Query(qo)
 		if err != nil {
-			logger.Fatalf("describe failed: %v", err)
+			return fmt.Errorf("query failed: %v", err)
 		}
 
 		// Get slice of TransferDetails from map of TransferDetails
@@ -273,7 +274,7 @@ var describeCmd = &cobra.Command{
 		}
 
 		if err != nil {
-			logger.Fatalf("describe failed: %v", err)
+			return fmt.Errorf("describe failed: %v", err)
 		}
 
 		if !quiet {
@@ -283,6 +284,7 @@ var describeCmd = &cobra.Command{
 
 		fmt.Println(string(res))
 
+		return nil
 	},
 }
 

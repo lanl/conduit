@@ -4,7 +4,6 @@ package clicmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/google/uuid"
@@ -35,7 +34,7 @@ var errorCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -44,17 +43,16 @@ var errorCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
+		defer client.Close()
 
 		tids := []string{}
 
 		for _, a := range args {
 			tid, err := uuid.Parse(a)
 			if err != nil {
-				fmt.Printf("failed to parse transferID[%s]: %v\n", a, err)
-				os.Exit(1)
+				return fmt.Errorf("failed to parse transferID[%s]: %v", a, err)
 			}
 			tids = append(tids, tid.String())
 		}
@@ -69,13 +67,15 @@ var errorCmd = &cobra.Command{
 		}
 		mtd, err := client.Query(qo)
 		if err != nil {
-			logger.Fatalf("query failed: %v", err)
+			return fmt.Errorf("query failed: %v", err)
 		}
 
 		// print error for each transfer
 		for _, td := range mtd.GetDetails() {
 			fmt.Printf("TransferID: %s\nTransfer State: %s\nTransfer Error State: %s\nTransfer Error Message: %s\n\n", td.GetTransferID(), td.GetState(), td.GetError(), td.GetErrorMessage())
 		}
+
+		return nil
 	},
 }
 
