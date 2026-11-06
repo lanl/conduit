@@ -27,7 +27,7 @@ var (
 		Use:   "conduit-mcp",
 		Short: "start the conduit mcp server",
 		Long:  `start the conduit mcp server`,
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 
 			log := logger.NewConduitLogger(logrus.InfoLevel, "")
 			if debug {
@@ -43,24 +43,24 @@ var (
 			clientKeyConfigPath := viper.GetString(defaults.ConfigClientKeyKey)
 
 			if clientCertConfigPath == "" && clientKeyConfigPath == "" {
-				log.Fatalf("no client cert or key is configured")
+				return fmt.Errorf("no client cert or key is configured")
 			}
 
 			clientCertPath, clientKeyPath, err := cliutil.GetUserCertAndKey(clientCertConfigPath, clientKeyConfigPath, "", "")
 			if err != nil {
-				log.Fatalf("failed to get client cert and key: %v\n", err)
+				return fmt.Errorf("failed to get client cert and key: %v", err)
 			}
 
 			log.Debugf("using user cert [%v] and key [%v]", clientCertPath, clientKeyPath)
 
 			tlsCert, err := pki.GetKeyPairFromFile(clientCertPath, clientKeyPath)
 			if err != nil {
-				log.Fatalf("failed to load cert[%s] and key[%s] from file: %v", clientCertPath, clientKeyPath, err)
+				return fmt.Errorf("failed to load cert[%s] and key[%s] from file: %v", clientCertPath, clientKeyPath, err)
 			}
 
 			certPool, err := cliutil.GetCertPoolFromViper(defaults.ConfigConduitCAKey)
 			if err != nil {
-				log.Fatalf("failed to get CA cert from config: %v", err)
+				return fmt.Errorf("failed to get CA cert from config: %v", err)
 			}
 
 			conduitIP := viper.GetString(defaults.ConfigConduitIPKey)
@@ -69,15 +69,15 @@ var (
 
 			mcpServer, err := mcp.CreateMCPServer(log, mcpAddr, tlsCert, certPool, conduitAddr)
 			if err != nil {
-				log.Fatalf("failed to create mcp server: %v", err)
+				return fmt.Errorf("failed to create mcp server: %v", err)
 			}
 
 			err = mcpServer.StartMCPServer()
 			if err != nil {
-				log.Fatalf("failed to run mcp server: %v", err)
+				return fmt.Errorf("failed to run mcp server: %v", err)
 			}
 
-			os.Exit(0)
+			return nil
 		},
 	}
 )

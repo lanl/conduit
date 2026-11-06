@@ -4,7 +4,6 @@ package clicmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -33,7 +32,7 @@ var abortCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -42,25 +41,23 @@ var abortCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
+		defer client.Close()
 
 		tids := []string{}
 
 		for _, a := range args {
 			tid, err := uuid.Parse(a)
 			if err != nil {
-				fmt.Printf("failed to parse transferID[%s]: %v\n", a, err)
-				os.Exit(1)
+				return fmt.Errorf("failed to parse transferID[%s]: %v", a, err)
 			}
 			tids = append(tids, tid.String())
 		}
 
 		mtd, err := client.StopTransfer(tids)
 		if err != nil {
-			fmt.Printf("abort request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("abort request failed: %v", err)
 		} else {
 			ids := []string{}
 			for _, t := range mtd.GetDetails() {
@@ -81,6 +78,8 @@ var abortCmd = &cobra.Command{
 				}
 			}
 		}
+
+		return nil
 	},
 }
 

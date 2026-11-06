@@ -4,7 +4,6 @@ package clicmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/common-nighthawk/go-figure"
 	"github.com/fatih/color"
@@ -32,7 +31,7 @@ var purgeCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -41,14 +40,13 @@ var purgeCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
+		defer client.Close()
 
 		resp, err := client.PurgeErrantPaths(args, providedUser)
 		if err != nil {
-			fmt.Printf("purge request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("purge request failed: %v", err)
 		} else {
 			paths := []string{}
 			for p := range resp.GetPaths() {
@@ -71,6 +69,8 @@ var purgeCmd = &cobra.Command{
 				fmt.Printf("no transfers purged\n")
 			}
 		}
+
+		return nil
 	},
 }
 

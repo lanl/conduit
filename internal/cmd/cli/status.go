@@ -55,8 +55,8 @@ var getCmd = &cobra.Command{
 	Args: func(cmd *cobra.Command, args []string) error {
 		return IsValidOutputFormat()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
-		statusCmd.Run(cmd, args)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return statusCmd.RunE(cmd, args)
 	},
 }
 
@@ -67,7 +67,7 @@ var statusCmd = &cobra.Command{
 	Args: func(cmd *cobra.Command, args []string) error {
 		return IsValidOutputFormat()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -82,9 +82,9 @@ var statusCmd = &cobra.Command{
 
 		cc, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Printf("failed to create client: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to create client: %v", err)
 		}
+		defer cc.Close()
 
 		doneChan := make(chan bool)
 		if !quiet {
@@ -103,7 +103,7 @@ var statusCmd = &cobra.Command{
 		logger.Debugf("querying for transfers")
 		mtd, err = cc.Query(qo)
 		if err != nil {
-			logger.Fatalf("query failed: %v", err)
+			return fmt.Errorf("query failed: %v", err)
 		}
 		logger.Debugf("received transfers")
 
@@ -145,7 +145,7 @@ var statusCmd = &cobra.Command{
 		var writer pp.Writer
 		writer, err = pp.NewWriter(os.Stdout, true)
 		if err != nil {
-			logger.Fatalf("status: failed to create printer object: %v", err)
+			return fmt.Errorf("status: failed to create printer object: %v", err)
 		}
 
 		switch {
@@ -185,7 +185,7 @@ var statusCmd = &cobra.Command{
 					processing.ProcessString},
 				"GetActive")
 			if err != nil {
-				logger.Fatalf("status: writer.SetProcessing wide failed: %v", err)
+				return fmt.Errorf("status: writer.SetProcessing wide failed: %v", err)
 			}
 		// [-o normal]
 		case statusCmdOutputFormat == "" || statusCmdOutputFormat == "normal":
@@ -217,14 +217,14 @@ var statusCmd = &cobra.Command{
 					processing.ProcessNiceBytes},
 				"GetActive")
 			if err != nil {
-				logger.Fatalf("status: writer.SetProcessing normal failed: %v", err)
+				return fmt.Errorf("status: writer.SetProcessing normal failed: %v", err)
 			}
 		}
 		// Send transfer details to printer
 		for t := range detailsSlice {
 			err = writer.Event(detailsSlice[t])
 			if err != nil {
-				logger.Fatalf("status: failed to print xfer details: %v", err)
+				return fmt.Errorf("status: failed to print xfer details: %v", err)
 			}
 		}
 
@@ -236,6 +236,8 @@ var statusCmd = &cobra.Command{
 		// Print
 		writer.Start()
 		writer.Stop()
+
+		return nil
 	},
 }
 

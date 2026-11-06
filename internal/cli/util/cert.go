@@ -42,8 +42,7 @@ func GetUserCertAndKey(userCert string, userKey string, userCertBundle string, d
 			// check to see if user keypair exists at default location
 			homeDir, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Printf("failed to get users home directory: %v\n", err)
-				os.Exit(1)
+				return "", "", fmt.Errorf("failed to get user's home directory: %v", err)
 			}
 
 			certBundlePath = filepath.Join(homeDir, defaults.DefaultBundleName)
