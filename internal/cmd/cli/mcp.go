@@ -55,7 +55,7 @@ var mcpCmd = &cobra.Command{
 			CertPath:       cert,
 			KeyPath:        key,
 			Quiet:          true,
-			NonInteractive: true,
+			NonInteractive: transport == "stdio",
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create Conduit CLI gRPC client: %w", err)
