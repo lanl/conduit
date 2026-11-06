@@ -37,7 +37,7 @@ var serverStartCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			return fmt.Errorf("failed to create client: %v", err)
+			return err
 		}
 		defer client.Close()
 
@@ -65,7 +65,7 @@ var serverDrainCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			return fmt.Errorf("failed to create client: %v", err)
+			return err
 		}
 		defer client.Close()
 
@@ -93,7 +93,7 @@ var serverStatusCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			return fmt.Errorf("failed to create client: %v", err)
+			return err
 		}
 		defer client.Close()
 

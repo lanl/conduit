@@ -41,7 +41,7 @@ var abortCmd = &cobra.Command{
 
 		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			return fmt.Errorf("failed to create client: %v", err)
+			return err
 		}
 		defer client.Close()
 
