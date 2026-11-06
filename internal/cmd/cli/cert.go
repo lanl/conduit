@@ -11,8 +11,6 @@ import (
 	"strconv"
 
 	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/cli/client"
-	"github.com/lanl/conduit/internal/cli/util"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -30,19 +28,10 @@ var certCmd = &cobra.Command{
 			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 
-		clientKeyPair, err := cmd.Flags().GetString("cert-key-bundle")
+		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Printf("failed to get cert-key-bundle flag: %v\n", err)
-			os.Exit(1)
+			logger.Fatalf("Failed to create client: %v", err)
 		}
-		clientCert, clientKey, err := util.GetUserCertAndKey(viper.GetString(defaults.ConfigClientCertKey), viper.GetString(defaults.ConfigClientKeyKey), clientKeyPair, defaults.DefaultBundlePath)
-		if err != nil {
-			fmt.Printf("failed to get client cert and key: %v\n", err)
-			os.Exit(1)
-		}
-		logger.Debugf("using user cert [%v] and key [%v]", clientCert, clientKey)
-
-		client, err := client.NewClient(logger, quiet, clientCert, clientKey)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)

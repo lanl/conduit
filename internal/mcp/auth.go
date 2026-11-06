@@ -13,19 +13,21 @@ import (
 )
 
 func (m *MCPServer) verifyToken(ctx context.Context, token string, _ *http.Request) (*mcpauth.TokenInfo, error) {
-	p, err := m.validator.ValidateBearerToken(ctx, token, conduitauth.ValidateOptions{})
+	if m.remote == nil || m.remote.validator == nil {
+		return nil, mcpauth.ErrInvalidToken
+	}
+	p, err := m.remote.validator.ValidateBearerToken(ctx, token, conduitauth.ValidateOptions{})
 	if err != nil {
 		m.log.Errorf("MCP token validation failed: %v", err)
 		return nil, fmt.Errorf("%w: %v", mcpauth.ErrInvalidToken, err)
 	}
-
 	if p.Username == "" {
 		return nil, fmt.Errorf("%w: missing username", mcpauth.ErrInvalidToken)
 	}
 
 	exp := p.ExpiresAt
 	if exp.IsZero() {
-		exp = time.Now().Add(m.tokenExpirationFallback)
+		exp = time.Now().Add(m.remote.tokenExpirationFallback)
 	}
 
 	return &mcpauth.TokenInfo{
