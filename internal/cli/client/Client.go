@@ -101,9 +101,6 @@ func DialClient(log *logrus.Logger, opts DialOptions) (*grpc.ClientConn, proto.C
 	// use tls cert/key if one is provided, otherwise try kerberos
 	if opts.CertPath != "" {
 		log.Debugf("using cert[%s] and key[%s] for authentication", opts.CertPath, opts.KeyPath)
-		if log.GetLevel() != logrus.DebugLevel && !opts.Quiet {
-			fmt.Println("using cert/key for authentication")
-		}
 		var err error
 		tlsCert, err = pki.GetKeyPairFromFile(opts.CertPath, opts.KeyPath)
 		if err != nil {
