@@ -267,7 +267,7 @@ func getKrbClient(logger *logrus.Logger, servicePrincipalName string, quiet bool
 	for _, ccp := range cleanCachePaths {
 		ccache, err := credentials.LoadCCache(ccp)
 		if err != nil {
-			lastErr = fmt.Errorf("load Kerberos ticket cache [%s]: %w", ccp, err)
+			lastErr = fmt.Errorf("failed to load Kerberos ticket cache [%s]: %w", ccp, err)
 			logger.Debugf("%v", lastErr)
 			continue
 		}
@@ -289,7 +289,7 @@ func getKrbClient(logger *logrus.Logger, servicePrincipalName string, quiet bool
 		// Log in the kerberos client
 		err = cl.Login()
 		if err != nil {
-			lastErr = fmt.Errorf("login with Kerberos ticket cache [%s]: %w", ccp, err)
+			lastErr = fmt.Errorf("failed to login with Kerberos ticket cache [%s]: %w", ccp, err)
 			logger.Debugf("%v", lastErr)
 			continue
 		}
