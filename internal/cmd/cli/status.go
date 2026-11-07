@@ -9,12 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/cli/client"
 	"github.com/lanl/conduit/internal/cli/processing"
 	pp "github.com/lanl/conduit/internal/cli/progressprinter"
 	"github.com/lanl/conduit/internal/cli/querygen"
-	"github.com/lanl/conduit/internal/cli/util"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -58,8 +55,8 @@ var getCmd = &cobra.Command{
 	Args: func(cmd *cobra.Command, args []string) error {
 		return IsValidOutputFormat()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
-		statusCmd.Run(cmd, args)
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return statusCmd.RunE(cmd, args)
 	},
 }
 
@@ -70,7 +67,7 @@ var statusCmd = &cobra.Command{
 	Args: func(cmd *cobra.Command, args []string) error {
 		return IsValidOutputFormat()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -83,24 +80,11 @@ var statusCmd = &cobra.Command{
 			queryStrings = args
 		}
 
-		clientCertKeyBundle, err := cmd.Flags().GetString("cert-key-bundle")
+		cc, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Printf("failed to get cert-key-bundle flag: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-		clientCert, clientKey, err := util.GetUserCertAndKey(viper.GetString(defaults.ConfigClientCertKey), viper.GetString(defaults.ConfigClientKeyKey), clientCertKeyBundle, defaults.DefaultBundlePath)
-		if err != nil {
-			fmt.Printf("failed to get client cert and key: %v\n", err)
-			os.Exit(1)
-		}
-		logger.Debugf("using user cert [%v] and key [%v]", clientCert, clientKey)
-
-		// Create client to send the gRPC request
-		cc, err := client.NewClient(logger, quiet, clientCert, clientKey)
-		if err != nil {
-			fmt.Printf("failed to create client: %v\n", err)
-			os.Exit(1)
-		}
+		defer cc.Close()
 
 		doneChan := make(chan bool)
 		if !quiet {
@@ -119,7 +103,7 @@ var statusCmd = &cobra.Command{
 		logger.Debugf("querying for transfers")
 		mtd, err = cc.Query(qo)
 		if err != nil {
-			logger.Fatalf("query failed: %v", err)
+			return fmt.Errorf("query failed: %v", err)
 		}
 		logger.Debugf("received transfers")
 
@@ -161,7 +145,7 @@ var statusCmd = &cobra.Command{
 		var writer pp.Writer
 		writer, err = pp.NewWriter(os.Stdout, true)
 		if err != nil {
-			logger.Fatalf("status: failed to create printer object: %v", err)
+			return fmt.Errorf("status: failed to create printer object: %v", err)
 		}
 
 		switch {
@@ -201,7 +185,7 @@ var statusCmd = &cobra.Command{
 					processing.ProcessString},
 				"GetActive")
 			if err != nil {
-				logger.Fatalf("status: writer.SetProcessing wide failed: %v", err)
+				return fmt.Errorf("status: writer.SetProcessing wide failed: %v", err)
 			}
 		// [-o normal]
 		case statusCmdOutputFormat == "" || statusCmdOutputFormat == "normal":
@@ -233,14 +217,14 @@ var statusCmd = &cobra.Command{
 					processing.ProcessNiceBytes},
 				"GetActive")
 			if err != nil {
-				logger.Fatalf("status: writer.SetProcessing normal failed: %v", err)
+				return fmt.Errorf("status: writer.SetProcessing normal failed: %v", err)
 			}
 		}
 		// Send transfer details to printer
 		for t := range detailsSlice {
 			err = writer.Event(detailsSlice[t])
 			if err != nil {
-				logger.Fatalf("status: failed to print xfer details: %v", err)
+				return fmt.Errorf("status: failed to print xfer details: %v", err)
 			}
 		}
 
@@ -252,6 +236,8 @@ var statusCmd = &cobra.Command{
 		// Print
 		writer.Start()
 		writer.Stop()
+
+		return nil
 	},
 }
 

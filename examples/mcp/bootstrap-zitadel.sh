@@ -25,8 +25,26 @@ MCP_SERVER_URL="https://mcp.home.arpa/mcp"
 OPENWEBUI_URL="https://openwebui.home.arpa"
 
 if [ -f "$STATE_FILE" ]; then
-	echo "ZITADEL already bootstrapped: $STATE_FILE"
-	exit 0
+    echo "ZITADEL already bootstrapped: $STATE_FILE"
+
+    PROJECT_ID=$(sed -n 's/^ZITADEL_PROJECT_ID=//p' "$STATE_FILE")
+    if [ -z "$PROJECT_ID" ]; then
+        echo "Missing ZITADEL project ID in $STATE_FILE" >&2
+        exit 1
+    fi
+
+    MCP_ENV="$MCP_DOCKER_PATH/generated/conduit-mcp.env"
+    LITELLM_ENV="$MCP_DOCKER_PATH/generated/litellm.env"
+
+    if ! grep -q '^CONDUIT_MCP_OAUTH_EXPECTED_AUDIENCE=' "$MCP_ENV"; then
+        echo "CONDUIT_MCP_OAUTH_EXPECTED_AUDIENCE=$PROJECT_ID" >> "$MCP_ENV"
+    fi
+
+    if ! grep -q '^LITELLM_CONDUIT_AUDIENCE_SCOPE=' "$LITELLM_ENV"; then
+        echo "LITELLM_CONDUIT_AUDIENCE_SCOPE=urn:zitadel:iam:org:project:id:${PROJECT_ID}:aud" >> "$LITELLM_ENV"
+    fi
+
+    exit 0
 fi
 
 if [ ! -s "$PAT_FILE" ]; then

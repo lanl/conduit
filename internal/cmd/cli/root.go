@@ -21,16 +21,18 @@ var (
 
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "conduit",
-	Short: "run conduit commands",
-	Long:  `This application provides a method for interacting with the conduit API`,
+	Use:           "conduit",
+	Short:         "run conduit commands",
+	Long:          `This application provides a method for interacting with the conduit API`,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := RootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
 }
