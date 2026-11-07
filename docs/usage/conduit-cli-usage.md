@@ -360,6 +360,78 @@ conduit version
 # conduit-server version: abc123def456
 ```
 
+### mcp - Run a local MCP server
+
+The `conduit mcp` command runs a local Model Context Protocol (MCP) server using the **same Conduit backend credentials as the CLI**. It exposes the same transfer tools as the shared `conduit-mcp` service, without requiring a separate OAuth provider or LiteLLM gateway.
+
+For centrally hosted, multi-user MCP deployments using OAuth, see the [Shared MCP Server Operations Guide](../operations/conduit-mcp-server.md).
+
+#### Usage
+
+```bash
+conduit [GLOBAL_FLAGS] mcp [--transport stdio|http] [--addr ADDRESS]
+```
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--transport` | `stdio` | MCP transport: `stdio` or `http`. |
+| `--addr` | `127.0.0.1:0` | Listen address for HTTP transport only. Must use a numeric loopback address; port `0` selects an available port. |
+
+The normal Conduit CLI configuration and global flags apply, including `--config`, `--ip`, `--ca`, `--cert`, `--key`, and `--cert-key-bundle`.
+
+#### stdio
+
+```bash
+# Use the available Kerberos credentials
+conduit mcp
+
+# Or use a user mTLS certificate/key bundle
+conduit --cert-key-bundle ~/.conduit-cert-key-bundle.pem mcp --transport stdio
+```
+
+The MCP client starts this command as a subprocess and communicates with it over stdin/stdout. **stdout is reserved for MCP protocol messages**; diagnostics are written to stderr.
+
+The CLI does not run its configured interactive `kinit` helper in stdio mode, because that helper could consume MCP input or corrupt the protocol output. Ensure a usable Kerberos ticket is already available or supply a user mTLS certificate.
+
+When the client machine cannot connect to Conduit's gRPC server but an SSH-accessible machine can, run the local MCP command over SSH:
+
+```bash
+ssh -T conduit-vm /usr/local/bin/conduit \
+  --config /etc/conduit/conduit-cli-config.yaml \
+  mcp --transport stdio
+```
+
+Configure the MCP client to launch this SSH command as its local stdio MCP subprocess. The remote machine must have network access to the Conduit gRPC server and usable credentials for the SSH user. Use `ssh -T` to avoid allocating a terminal that could interfere with MCP communication.
+
+#### Local HTTP (Streamable HTTP)
+
+If your MCP client supports HTTP connections but cannot launch a stdio subprocess, start an HTTP listener:
+
+```bash
+conduit mcp --transport http --addr 127.0.0.1:8081
+```
+
+The command prints connection information similar to:
+
+```text
+Local MCP endpoint: http://127.0.0.1:8081/mcp
+Bearer token: <generated-token>
+```
+
+Configure your MCP client with the displayed endpoint and this HTTP header:
+
+```text
+Authorization: Bearer <generated-token>
+```
+
+The token is generated randomly for each process and is no longer valid once the server exits. The CLI process must remain running while clients use the endpoint. If `--addr` is omitted, Conduit chooses a free loopback port and prints the resulting URL.
+
+The HTTP listener accepts only numeric loopback addresses. It is **not** an OAuth-protected, multi-user MCP service and must not be exposed on a LAN or public network. Treat the printed bearer token as a secret; other local processes with access to it may be able to use the active user's Conduit credentials through this MCP server.
+
+#### Choosing the right deployment
+
+Use `conduit mcp` for a single user, a local application, or a client that can start a process over SSH. Use the separate `conduit-mcp` service when multiple users need shared access through OAuth, with or without a LiteLLM gateway.
+
 ## Advanced Querying with JSONPath
 
 The `describe` command supports JSONPath filtering, which is useful for scripting and extracting specific information from transfers.
