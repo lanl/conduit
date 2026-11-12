@@ -101,6 +101,11 @@ const (
 	ConfigMCPPublicBaseURLKey        = "server.public-url"
 	ConfigMCPResourcePathKey         = "server.mcp-resource-path"
 	ConfigMCPResourceMetadataPathKey = "server.metadata-path"
+
+	// Health check config keys
+	ConfigRunnerHealthScriptKey   = "health.script"
+	ConfigRunnerHealthIntervalKey = "health.interval"
+	ConfigRunnerHealthTimeoutKey  = "health.timeout"
 )
 
 const (
@@ -149,6 +154,11 @@ const (
 	DefaultClientCert        = ""
 	DefaultClientKey         = ""
 	DefaultBundleName        = ".conduit-cert-key-bundle.pem"
+)
+
+const (
+	DefaultRunnerHealthInterval = 30 * time.Second
+	DefaultRunnerHealthTimeout  = 5 * time.Second
 )
 
 var (

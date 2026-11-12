@@ -5,6 +5,7 @@ package runner
 import (
 	"bytes"
 	"crypto/tls"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -62,7 +63,9 @@ type Runner struct {
 
 	runnerState proto.ServerState
 	Shutdown    bool         // shutdown is used to signal that we are trying to shutdown so prevent the api endpoints from responding
+	Unhealthy   bool         // unhealthy is used to signal that the runner is unhealthy so we stop sending jobs
 	rsMutex     sync.RWMutex // lock for runner state
+	healthMutex sync.RWMutex // lock for health check
 
 	Version string
 }
@@ -95,6 +98,58 @@ func NewRunner(log *logger.ConduitLogger, cert *pki.InternalCertManager, em *etc
 	}
 
 	return run
+}
+
+func (r *Runner) HealthCheck() {
+	timeout := viper.GetDuration(defaults.ConfigRunnerHealthTimeoutKey)
+
+	if timeout <= 0 {
+		timeout = defaults.DefaultRunnerHealthTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	err := exec.CommandContext(ctx, viper.GetString(defaults.ConfigRunnerHealthScriptKey)).Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		err = fmt.Errorf("timed out after %v", timeout)
+	}
+
+	var stateChange bool
+	r.healthMutex.Lock()
+	if err != nil {
+		if !r.Unhealthy {
+			stateChange = true
+		}
+		r.Unhealthy = true
+	} else {
+		if r.Unhealthy {
+			stateChange = true
+		}
+		r.Unhealthy = false
+	}
+	r.healthMutex.Unlock()
+
+	if stateChange {
+		if err != nil {
+			r.log.Errorf("Health check failed, node is unhealthy: %v", err)
+		} else {
+			r.log.Infof("Health check passed, node is healthy")
+		}
+	}
+}
+
+func (r *Runner) HealthMonitor() {
+	interval := viper.GetDuration(defaults.ConfigRunnerHealthIntervalKey)
+
+	if interval <= 0 {
+		interval = defaults.DefaultRunnerHealthInterval
+	}
+
+	for {
+		<-time.After(interval)
+		r.HealthCheck()
+	}
 }
 
 // StartRunner creates and get the transport layer security (tls) certificate, sets up the grpc stream and server
@@ -148,6 +203,12 @@ func (r *Runner) StartRunner() error {
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on address: %v", addr)
+	}
+
+	healthPath := viper.GetString(defaults.ConfigRunnerHealthScriptKey)
+	if healthPath != "" {
+		r.HealthCheck()
+		go r.HealthMonitor()
 	}
 
 	// Start monitoring nodes current memory and job status
@@ -392,9 +453,13 @@ func (r *Runner) MemoryMonitor(sleepDuration time.Duration) {
 		shutdown := r.Shutdown
 		r.rsMutex.RUnlock()
 
+		r.healthMutex.RLock()
+		unhealthy := r.Unhealthy
+		r.healthMutex.RUnlock()
+
 		var availableMemory uint64
 
-		if shutdown {
+		if shutdown || unhealthy {
 			availableMemory = 0
 		} else {
 			vm, err := mem.VirtualMemory()
