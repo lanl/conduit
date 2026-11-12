@@ -36,3 +36,11 @@ server:
 transfer:
   # the duration that conduit will advance the expiry time of a transfer if its determined that it is still running. Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"
   expiry-advance: 60s
+
+health:
+  # the path to a script that will be executed to determine if the conduit runner is healthy. If the script returns a non-zero exit code, the runner will be considered unhealthy. If no script is specified, the runner will always be considered healthy
+  script: ""
+  # the duration between health checks. Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"
+  interval: 60s
+  # the duration to wait for the health check script to complete before considering it a failure. Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h"
+  timeout: 10s
