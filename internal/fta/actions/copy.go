@@ -76,6 +76,6 @@ var parentsOption = func(cmd *cobra.Command) (*anypb.Any, error) {
 func init() {
 	cpCmd.Flags().BoolP(RecursiveFlag, "r", false, "copy directories recursively")
 	cpCmd.Flags().Bool(OmitMissingFlag, false, "omit any sources that don't exist")
-	cpCmd.Flags().String(ParentsFlag, "", "make parent directories of destination as needed (default mode: 700)")
+	cpCmd.Flags().String(ParentsFlag, "", "create missing destination parent directories (default mode: 0700; permissions are subject to the FTA process umask)")
 	cpCmd.Flags().Lookup(ParentsFlag).NoOptDefVal = "700"
 }
