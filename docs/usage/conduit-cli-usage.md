@@ -50,16 +50,17 @@ conduit cp SOURCE... DESTINATION [flags]
 
 #### Arguments & Flags
 
-| Name                    | Type       | Required | Description                                                                    |
-| ----------------------- | ---------- | -------- | ------------------------------------------------------------------------------ |
-| `SOURCE`                | positional | yes      | Path to source file(s)/directories                                             |
-| `DESTINATION`           | positional | yes      | Path to destination file/directory                                             |
-| `--background, -b`      | flag       | no       | Submit a conduit transfer without watching it progress to completion           |
-| `--quiet, -q`           | flag       | no       | Reduce command output to only a transferID                                     |
-| `--recursive, -r`       | flag       | no       | Copy directories recursively                                                   |
-| `--skip-validation, -s` | flag       | no       | Skip waiting for validation to succeed                                         |
-| `--user`                | string     | no       | The user to start the transfer as. Requires an admin cert & key to be provided |
-| `--validate-only`       | flag       | no       | Do not transfer any data, just run validation                                  |
+| Name                     | Type       | Required | Description                                                                    |
+| ------------------------ | ---------- | -------- | ------------------------------------------------------------------------------ |
+| `SOURCE`                 | positional | yes      | Path to source file(s)/directories                                             |
+| `DESTINATION`            | positional | yes      | Path to destination file/directory                                             |
+| `--background, -b`       | flag       | no       | Submit a conduit transfer without watching it progress to completion           |
+| `--quiet, -q`            | flag       | no       | Reduce command output to only a transferID                                     |
+| `--recursive, -r`        | flag       | no       | Copy directories recursively                                                   |
+| `--mkdir-parents[=MODE]` | string     | no       | Create missing destination parent directories (default mode: `0700`)           |
+| `--skip-validation, -s`  | flag       | no       | Skip waiting for validation to succeed                                         |
+| `--user`                 | string     | no       | The user to start the transfer as. Requires an admin cert & key to be provided |
+| `--validate-only`        | flag       | no       | Do not transfer any data, just run validation                                  |
 
 #### Examples
 
@@ -100,16 +101,17 @@ conduit mv SOURCE... DESTINATION [flags]
 
 #### Arguments & Flags
 
-| Name                    | Type       | Required | Description                                                                    |
-| ----------------------- | ---------- | -------- | ------------------------------------------------------------------------------ |
-| `SOURCE`                | positional | yes      | Path to source file(s)/directories                                             |
-| `DESTINATION`           | positional | yes      | Path to destination file/directory                                             |
-| `--background, -b`      | flag       | no       | Submit a conduit transfer without watching it progress to completion           |
-| `--quiet, -q`           | flag       | no       | Reduce command output to only a transferID                                     |
-| `--recursive, -r`       | flag       | no       | Move directories recursively                                                   |
-| `--skip-validation, -s` | flag       | no       | Skip waiting for validation to succeed                                         |
-| `--user`                | string     | no       | The user to start the transfer as. Requires an admin cert & key to be provided |
-| `--validate-only`       | flag       | no       | Do not transfer any data, just run validation                                  |
+| Name                     | Type       | Required | Description                                                                    |
+| ------------------------ | ---------- | -------- | ------------------------------------------------------------------------------ |
+| `SOURCE`                 | positional | yes      | Path to source file(s)/directories                                             |
+| `DESTINATION`            | positional | yes      | Path to destination file/directory                                             |
+| `--background, -b`       | flag       | no       | Submit a conduit transfer without watching it progress to completion           |
+| `--quiet, -q`            | flag       | no       | Reduce command output to only a transferID                                     |
+| `--recursive, -r`        | flag       | no       | Move directories recursively                                                   |
+| `--mkdir-parents[=MODE]` | string     | no       | Create missing destination parent directories (default mode: `0700`)           |
+| `--skip-validation, -s`  | flag       | no       | Skip waiting for validation to succeed                                         |
+| `--user`                 | string     | no       | The user to start the transfer as. Requires an admin cert & key to be provided |
+| `--validate-only`        | flag       | no       | Do not transfer any data, just run validation                                  |
 
 #### Examples
 
