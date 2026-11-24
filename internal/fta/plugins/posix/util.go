@@ -210,6 +210,9 @@ func isFTADestDir(destFTAPath string) (proto.DestInfo, proto.Error, error) {
 	return destInfo, proto.Error_ERROR_NONE, nil
 }
 
+// findExistingParent walks up the directory tree from the given path and returns
+// the nearest existing parent directory. Returns an error if an existing parent
+// is not a directory or if no valid parent can be found.
 func findExistingParent(path string) (string, error) {
 	parent := filepath.Dir(path)
 
@@ -234,6 +237,8 @@ func findExistingParent(path string) (string, error) {
 	}
 }
 
+// getParentsMode retrieves the mkdir-parents option and parses its octal permission
+// mode. Returns the mode, whether the option is enabled, and any parsing error.
 func getParentsMode(options map[string]*anypb.Any) (os.FileMode, bool, error) {
 	opt, ok := options[actions.ParentsFlag]
 	if !ok {
