@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 	proto "github.com/lanl/conduit/api"
-	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -119,9 +118,9 @@ func (m *MCPServer) registerTools() error {
 }
 
 func (m *MCPServer) startTransfer(ctx context.Context, req *mcpsdk.CallToolRequest, params *StartTransferParams) (*mcpsdk.CallToolResult, *StartTransferResult, error) {
-	info := mcpauth.TokenInfoFromContext(ctx)
-	if info == nil || info.UserID == "" {
-		return nil, nil, fmt.Errorf("no authenticated user provided")
+	username, err := m.requestUsername(ctx, req)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Build the options map for the transfer request
@@ -161,14 +160,14 @@ func (m *MCPServer) startTransfer(ctx context.Context, req *mcpsdk.CallToolReque
 	}
 
 	tr := &proto.TransferRequest{
-		User:        info.UserID,
+		User:        username,
 		Action:      params.Action,
 		Source:      params.Source,
 		Destination: params.Destination,
 		Options:     options,
 	}
 
-	m.log.Debugf("received start transfer request for user[%v]", info.UserID)
+	m.log.Debugf("received start transfer request for user[%v]", username)
 
 	resp, err := m.conduitClient.StartTransfer(ctx, tr)
 	if err != nil {
@@ -207,13 +206,13 @@ func (m *MCPServer) startTransfer(ctx context.Context, req *mcpsdk.CallToolReque
 }
 
 func (m *MCPServer) getTransferStatus(ctx context.Context, req *mcpsdk.CallToolRequest, params *GetTransferStatusParams) (*mcpsdk.CallToolResult, *GetTransferStatusResult, error) {
-	info := mcpauth.TokenInfoFromContext(ctx)
-	if info == nil || info.UserID == "" {
-		return nil, nil, fmt.Errorf("no authenticated user provided")
+	username, err := m.requestUsername(ctx, req)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	qo := &proto.QueryOptions{
-		User:           info.UserID,
+		User:           username,
 		QueryOperation: proto.QueryOperation_QUERY_OR,
 		QueryMap:       map[string]string{"TransferID": params.TransferID},
 	}

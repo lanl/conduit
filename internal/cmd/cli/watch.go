@@ -9,12 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/cli/client"
 	"github.com/lanl/conduit/internal/cli/processing"
 	pp "github.com/lanl/conduit/internal/cli/progressprinter"
 	"github.com/lanl/conduit/internal/cli/querygen"
-	"github.com/lanl/conduit/internal/cli/util"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -24,15 +21,6 @@ var (
 	watchCmdLimitNum int // Placeholder for '-n'
 )
 
-// Error: at least one transfer failed
-type ErrXferFailed int
-
-func (e ErrXferFailed) Error() string {
-	return "One or more transfers failed"
-}
-
-var EXFERFAILED = ErrXferFailed(1)
-
 var watchCmd = &cobra.Command{
 	Use:   "watch TRANSFER_ID ...",
 	Short: "watch the status of one or more transfers",
@@ -40,7 +28,7 @@ var watchCmd = &cobra.Command{
 	Args: func(cmd *cobra.Command, args []string) error {
 		return IsValidOutputFormat()
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
@@ -53,24 +41,11 @@ var watchCmd = &cobra.Command{
 			tIDs = args
 		}
 
-		clientCertKeyBundle, err := cmd.Flags().GetString("cert-key-bundle")
+		cc, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Printf("failed to get cert-key-bundle flag: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-		clientCert, clientKey, err := util.GetUserCertAndKey(viper.GetString(defaults.ConfigClientCertKey), viper.GetString(defaults.ConfigClientKeyKey), clientCertKeyBundle, defaults.DefaultBundlePath)
-		if err != nil {
-			fmt.Printf("failed to get client cert and key: %v\n", err)
-			os.Exit(1)
-		}
-		logger.Debugf("using user cert [%v] and key [%v]", clientCert, clientKey)
-
-		// Create client to send the gRPC request
-		cc, err := client.NewClient(logger, quiet, clientCert, clientKey)
-		if err != nil {
-			fmt.Printf("failed to create client: %v\n", err)
-			os.Exit(1)
-		}
+		defer cc.Close()
 
 		doneChan := make(chan bool)
 		if !quiet {
@@ -93,8 +68,7 @@ var watchCmd = &cobra.Command{
 			// Send query
 			mtd, err = cc.Query(qo)
 			if err != nil {
-				fmt.Printf("query failed: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("query failed: %v", err)
 			}
 			// Get slice of TransferDetails from map of TransferDetails
 			details = mtd.GetDetails()
@@ -138,6 +112,10 @@ var watchCmd = &cobra.Command{
 		// Send gRPC request to watch transfer, getting back:
 		// the watch client object, the watch cancel function, and any error
 		wc, wCancel, err := cc.WatchStatus(tIDs, providedUser)
+		if err != nil {
+			return fmt.Errorf("watch: failed to watch transfers: %w", err)
+		}
+		defer wCancel()
 
 		go func() {
 			<-wc.Context().Done()
@@ -145,8 +123,7 @@ var watchCmd = &cobra.Command{
 		}()
 		// If watch request not successful, err
 		if err != nil {
-			fmt.Printf("watch: failed to watch status of transfer: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("watch: failed to watch status of transfer: %v", err)
 		}
 		// Handle cancelling the watch command
 		defer func() {
@@ -157,8 +134,7 @@ var watchCmd = &cobra.Command{
 		err = wc.CloseSend()
 		// Err if could not close send side of grpc stream
 		if err != nil {
-			fmt.Printf("watch: failed to close the send side of the stream: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("watch: failed to close the send side of the stream: %v", err)
 		}
 
 		logger.Debug("watch: starting to listen to the watch stream")
@@ -167,7 +143,7 @@ var watchCmd = &cobra.Command{
 		var writer pp.Writer
 		writer, err = pp.NewWriter(os.Stdout, false)
 		if err != nil {
-			logger.Fatalf("watch: failed to create printer object: %v", err)
+			return fmt.Errorf("watch: failed to create printer object: %v", err)
 		}
 		err = writer.SetProcessing(
 			[]string{
@@ -190,14 +166,14 @@ var watchCmd = &cobra.Command{
 				processing.ProcessNiceBytes},
 			"GetActive")
 		if err != nil {
-			logger.Fatalf("watch: failed to configure printer object: %v", err)
+			return fmt.Errorf("watch: failed to configure printer object: %v", err)
 		}
 
 		// If user has no transfers, just print headers
 		if len(tIDs) == 0 {
 			writer.Start()
 			writer.Stop()
-			return
+			return nil
 		}
 
 		var first bool = true
@@ -215,8 +191,7 @@ var watchCmd = &cobra.Command{
 			logger.Debugf("watch: received status message: %+v", mtd)
 			// If error in receiving status, err
 			if err != nil {
-				fmt.Printf("watch: error while watching status: %v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("watch: error while watching status: %v", err)
 			}
 			// Get slice of TransferDetails from map of TransferDetails
 			details = mtd.GetDetails()
@@ -246,7 +221,7 @@ var watchCmd = &cobra.Command{
 			for t := range detailsSlice {
 				err = writer.Event(detailsSlice[t])
 				if err != nil {
-					logger.Fatalf("watch: failed to print xfer details: %v", err)
+					return fmt.Errorf("watch: failed to print xfer details: %v", err)
 				}
 			}
 			// Start printing after first transfers
@@ -268,8 +243,10 @@ var watchCmd = &cobra.Command{
 		}
 
 		if err != nil {
-			logger.Fatalf("Error: %v", err)
+			return fmt.Errorf("%v", err)
 		}
+
+		return nil
 	},
 }
 

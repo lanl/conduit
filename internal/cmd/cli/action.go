@@ -4,13 +4,9 @@ package clicmd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/cli/client"
-	"github.com/lanl/conduit/internal/cli/util"
 	"github.com/lanl/conduit/internal/fta/actions"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -29,30 +25,19 @@ func getCommands() {
 }
 
 func attachRunCommand(pluginAction *actions.PluginAction) {
-	pluginAction.Command.Run = func(cmd *cobra.Command, args []string) {
+	pluginAction.Command.RunE = func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
 			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 
-		clientCertKeyBundle, err := cmd.Flags().GetString("cert-key-bundle")
+		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Printf("failed to get cert-key-bundle flag: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-		clientCert, clientKey, err := util.GetUserCertAndKey(viper.GetString(defaults.ConfigClientCertKey), viper.GetString(defaults.ConfigClientKeyKey), clientCertKeyBundle, defaults.DefaultBundlePath)
-		if err != nil {
-			fmt.Printf("failed to get client cert and key: %v\n", err)
-			os.Exit(1)
-		}
-		logger.Debugf("using user cert [%v] and key [%v]", clientCert, clientKey)
+		defer client.Close()
 
-		client, err := client.NewClient(logger, quiet, clientCert, clientKey)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
 		src := args[:len(args)-1]
 		dst := args[len(args)-1]
 
@@ -63,16 +48,14 @@ func attachRunCommand(pluginAction *actions.PluginAction) {
 		for optionName, optionGet := range pluginAction.Options {
 			val, err := optionGet(cmd)
 			if err != nil {
-				fmt.Printf("%v\n", err)
-				os.Exit(1)
+				return fmt.Errorf("failed to get option: %v", err)
 			}
 			options[optionName] = val
 		}
 
 		skipValidation, err := cmd.Flags().GetBool("skip-validation")
 		if err != nil {
-			fmt.Printf("failed to get skip-validation flag: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to get skip-validation flag: %v", err)
 		}
 
 		pauseState, err := cmd.Flags().GetString("pause")
@@ -99,8 +82,7 @@ func attachRunCommand(pluginAction *actions.PluginAction) {
 		validateOnly := false
 		validateOnly, err = cmd.Flags().GetBool("validate-only")
 		if err != nil {
-			fmt.Printf("failed to get skip-validation flag: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to get skip-validation flag: %v", err)
 		}
 
 		ps := proto.TransferState_TRANSFER_NONE
@@ -112,8 +94,7 @@ func attachRunCommand(pluginAction *actions.PluginAction) {
 			for i := int32(0); i < int32(len(proto.TransferState_name)); i++ {
 				lsList = append(lsList, proto.TransferState_name[i])
 			}
-			fmt.Printf("possible pause states: %v\n", lsList)
-			os.Exit(1)
+			return fmt.Errorf("possible pause states: %v", lsList)
 		}
 
 		if !quiet {
@@ -131,7 +112,7 @@ func attachRunCommand(pluginAction *actions.PluginAction) {
 					fmt.Printf("Warning: %s\n", strings.TrimPrefix(warning, fmt.Sprintf("%s: ", proto.SchedulerCommand_VALIDATION.String())))
 				}
 			}
-			os.Exit(1)
+			return fmt.Errorf("request failed: %v", err)
 		} else {
 			if !quiet {
 				fmt.Printf("successfully submitted transfer: %v\n", td.GetTransferID())
@@ -148,13 +129,13 @@ func attachRunCommand(pluginAction *actions.PluginAction) {
 
 		background, err := cmd.Flags().GetBool("background")
 		if err != nil {
-			fmt.Printf("failed to get background flag: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to get background flag: %v\n", err)
 		}
 
 		if !background && !skipValidation {
-			watchCmd.Run(cmd, []string{td.GetTransferID()})
+			return watchCmd.RunE(cmd, []string{td.GetTransferID()})
 		}
+		return nil
 	}
 
 	pluginAction.Command.Flags().BoolVarP(&quiet, "quiet", "q", false, "Reduce command output to only a transferID")

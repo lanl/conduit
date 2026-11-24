@@ -35,21 +35,20 @@ var (
 			}
 			return nil
 		},
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if viper.GetBool(defaults.ConfigTestKey) {
 				logrus.Error("CONDUIT IN TEST MODE! THIS SHOULD NEVER HAPPEN IN PRODUCTION")
 			}
 			s, err := grpcserver.CreateConduitServer(debug)
 			if err != nil {
-				logrus.Errorf("failed to create conduit server: %v", err)
-				os.Exit(1)
+				return fmt.Errorf("failed to create conduit server: %v", err)
 			}
 			err = s.StartConduitServer()
 			if err != nil {
-				logrus.Errorf("conduit exiting with err: %v", err)
-				os.Exit(1)
+				return fmt.Errorf("conduit exiting with err: %v", err)
 			}
-			os.Exit(0)
+
+			return nil
 		},
 	}
 )

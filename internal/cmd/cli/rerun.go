@@ -4,12 +4,8 @@ package clicmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/google/uuid"
-	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/cli/client"
-	"github.com/lanl/conduit/internal/cli/util"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -35,36 +31,23 @@ var rerunCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
 			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 
-		clientCertKeyBundle, err := cmd.Flags().GetString("cert-key-bundle")
+		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Printf("failed to get cert-key-bundle flag: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-		clientCert, clientKey, err := util.GetUserCertAndKey(viper.GetString(defaults.ConfigClientCertKey), viper.GetString(defaults.ConfigClientKeyKey), clientCertKeyBundle, defaults.DefaultBundlePath)
-		if err != nil {
-			fmt.Printf("failed to get client cert and key: %v\n", err)
-			os.Exit(1)
-		}
-		logger.Debugf("using user cert [%v] and key [%v]", clientCert, clientKey)
-
-		client, err := client.NewClient(logger, quiet, clientCert, clientKey)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
+		defer client.Close()
 
 		// the args function already validated the uuids (args)
 		mtd, err := client.ReRunTransfers(args)
 		if err != nil {
-			fmt.Printf("rerun request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("rerun request failed: %v", err)
 		}
 
 		tids := []string{}
@@ -73,11 +56,11 @@ var rerunCmd = &cobra.Command{
 		}
 
 		if len(tids) == 0 {
-			fmt.Println("no transfers found")
-			os.Exit(1)
+			return fmt.Errorf("no transfers found")
 		}
 
 		fmt.Printf("successfully reran transfers: %v\n", tids)
+		return nil
 	},
 }
 

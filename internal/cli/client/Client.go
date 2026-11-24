@@ -5,6 +5,7 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log"
 	"net"
@@ -41,54 +42,99 @@ const Krb5CCNameEnvVar = "KRB5CCNAME"
 type ConduitClient struct {
 	log    *logrus.Logger
 	client proto.ConduitApiClient
+	conn   *grpc.ClientConn
 	quiet  bool
+}
+
+// DialOptions selects the same backend authentication used by normal CLI commands.
+// NonInteractive is required for MCP stdio: a credential helper must never read
+// the JSON-RPC stream or write non-protocol data to stdout.
+type DialOptions struct {
+	CertPath       string
+	KeyPath        string
+	Quiet          bool
+	NonInteractive bool
 }
 
 // NewClient creates a new ConduitClient
 func NewClient(logger *logrus.Logger, quiet bool, certPath string, keyPath string) (*ConduitClient, error) {
-	client, err := getGRPCClient(logger, quiet, certPath, keyPath)
+	conn, grpcClient, err := DialClient(logger, DialOptions{
+		CertPath: certPath,
+		KeyPath:  keyPath,
+		Quiet:    quiet,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create grpc client: %v", err)
+		return nil, fmt.Errorf("failed to create grpc client: %w", err)
 	}
 
-	cc := &ConduitClient{
+	return &ConduitClient{
 		log:    logger,
-		client: client,
+		client: grpcClient,
+		conn:   conn,
 		quiet:  quiet,
-	}
-	return cc, nil
+	}, nil
 }
 
-// getGRPCClient authenticates with kerberos, dials into the conduit server, and returns a ConduitApiClient
-func getGRPCClient(log *logrus.Logger, quiet bool, certPath string, keyPath string) (proto.ConduitApiClient, error) {
+// Close releases the gRPC connection owned by a regular ConduitClient.
+func (cc *ConduitClient) Close() error {
+	if cc == nil || cc.conn == nil {
+		return nil
+	}
+	return cc.conn.Close()
+}
+
+// DialClient creates the Conduit backend used by both the CLI and local MCP.
+// The caller owns the returned connection and must close it. NewClient takes
+// ownership for regular CLI commands; the MCP server takes ownership for MCP.
+// grpc.NewClient is lazy: the first RPC performs the actual network dial.
+func DialClient(log *logrus.Logger, opts DialOptions) (*grpc.ClientConn, proto.ConduitApiClient, error) {
+	if log == nil {
+		return nil, nil, fmt.Errorf("logger is required")
+	}
+	if (opts.CertPath == "") != (opts.KeyPath == "") {
+		return nil, nil, fmt.Errorf("both the client certificate and key must be provided")
+	}
+
 	var ci *grpckrb.KRBClientInterceptor
 	var tlsCert *tls.Certificate
 
 	// use tls cert/key if one is provided, otherwise try kerberos
-	if certPath != "" && keyPath != "" {
-		log.Debugf("using cert[%s] and key[%s] for authentication", certPath, keyPath)
-		if log.GetLevel() != logrus.DebugLevel && !quiet {
-			fmt.Println("using cert/key for authentication")
-		}
+	if opts.CertPath != "" {
+		log.Debugf("using cert[%s] and key[%s] for authentication", opts.CertPath, opts.KeyPath)
 		var err error
-		tlsCert, err = pki.GetKeyPairFromFile(certPath, keyPath)
+		tlsCert, err = pki.GetKeyPairFromFile(opts.CertPath, opts.KeyPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load cert[%s] and key[%s] from file: %v", certPath, keyPath, err)
+			return nil, nil, fmt.Errorf("failed to load cert[%s] and key[%s] from file: %v", opts.CertPath, opts.KeyPath, err)
 		}
 	}
 
-	if tlsCert != nil && time.Now().After(tlsCert.Leaf.NotAfter) {
-		log.Warnf("provided mtls cert has expired, attempting kerberos")
+	if tlsCert != nil {
+		// A tls.Certificate may not have Leaf set, depending on how it was loaded.
+		if tlsCert.Leaf == nil {
+			if len(tlsCert.Certificate) == 0 {
+				return nil, nil, fmt.Errorf("client certificate chain is empty")
+			}
+			leaf, err := x509.ParseCertificate(tlsCert.Certificate[0])
+			if err != nil {
+				return nil, nil, fmt.Errorf("parse client certificate: %w", err)
+			}
+			tlsCert.Leaf = leaf
+		}
+		if time.Now().After(tlsCert.Leaf.NotAfter) {
+			log.Warnf("provided mTLS certificate has expired; attempting Kerberos")
+			// Do not also present the expired certificate during TLS handshake.
+			tlsCert = nil
+		}
 	}
 
-	// use kerberos if we didn't get a tls cert or if its expired
-	if tlsCert == nil || time.Now().After(tlsCert.Leaf.NotAfter) {
+	// Use Kerberos if no valid TLS client certificate is available.
+	if tlsCert == nil {
 		spn := viper.GetString(defaults.ConfigKrbSpnKey)
 		log.Debugf("using kerberos principle: [%v]", spn)
 
-		krbClient, err := getKrbClient(log, spn, quiet)
+		krbClient, err := getKrbClient(log, spn, opts.Quiet, opts.NonInteractive)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get kerberos client: %v", err)
+			return nil, nil, fmt.Errorf("failed to get kerberos client: %v", err)
 		}
 
 		ci = &grpckrb.KRBClientInterceptor{
@@ -100,11 +146,10 @@ func getGRPCClient(log *logrus.Logger, quiet bool, certPath string, keyPath stri
 
 	certPool, err := util.GetCertPoolFromViper(defaults.ConfigConduitCAKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get CA cert from config: %v", err)
+		return nil, nil, fmt.Errorf("failed to get CA cert from config: %v", err)
 	}
 
 	tlsConfig := &tls.Config{
-		// Certificates: []tls.Certificate{cert},
 		RootCAs:    certPool,
 		MinVersion: tls.VersionTLS13,
 		MaxVersion: tls.VersionTLS13,
@@ -116,13 +161,13 @@ func getGRPCClient(log *logrus.Logger, quiet bool, certPath string, keyPath stri
 
 	creds := gcredentials.NewTLS(tlsConfig)
 
-	opts := []grpc.DialOption{
+	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 	}
 
 	if ci != nil {
-		opts = append(opts, grpc.WithUnaryInterceptor(ci.Unary()))
-		opts = append(opts, grpc.WithStreamInterceptor(ci.Stream()))
+		dialOpts = append(dialOpts, grpc.WithUnaryInterceptor(ci.Unary()))
+		dialOpts = append(dialOpts, grpc.WithStreamInterceptor(ci.Stream()))
 	}
 
 	conduitIP := viper.GetString(defaults.ConfigConduitIPKey)
@@ -130,22 +175,20 @@ func getGRPCClient(log *logrus.Logger, quiet bool, certPath string, keyPath stri
 	conduitAddr := net.JoinHostPort(conduitIP, conduitPort)
 
 	log.Debugf("dialing to grpc server at: %v\n", conduitAddr)
-	conn, err := grpc.NewClient(conduitAddr, opts...)
-	// conn, err := grpc.DialContext(ctx, conduitAddr, opts...)
+	conn, err := grpc.NewClient(conduitAddr, dialOpts...)
 	if err != nil {
-		// ctxCancel()
-		return nil, fmt.Errorf("failed to dial into conduit server: %v", err)
+		return nil, nil, fmt.Errorf("failed to dial into conduit server: %v", err)
 	}
 
 	log.Debugf("creating grpc client")
 	client := proto.NewConduitApiClient(conn)
 
-	return client, nil
+	return conn, client, nil
 }
 
 // getKrbClient creates a kerberos client using the users cached kerberos ticket defined in the config
 // note that this will also login to the kdc
-func getKrbClient(logger *logrus.Logger, servicePrincipalName string, quiet bool) (*client.Client, error) {
+func getKrbClient(logger *logrus.Logger, servicePrincipalName string, quiet bool, nonInteractive bool) (*client.Client, error) {
 	// Load the client krb5 config
 	conf, err := config.Load(viper.GetString(defaults.ConfigKrbConfigKey))
 	if err != nil {
@@ -156,11 +199,13 @@ func getKrbClient(logger *logrus.Logger, servicePrincipalName string, quiet bool
 
 	// run kinit script if defined
 	kinitPath := viper.GetString(defaults.ConfigKrbKinitPathKey)
-	if kinitPath != "" {
+	if kinitPath != "" && !nonInteractive {
 		kinitErr := runKinit(kinitPath)
 		if kinitErr != nil && !quiet {
 			fmt.Printf("kinit script failed: %s\n", kinitErr)
 		}
+	} else if kinitPath != "" {
+		logger.Debug("skipping configured kinit helper in noninteractive mode; using existing ticket cache")
 	}
 
 	// get the current user information
@@ -218,42 +263,40 @@ func getKrbClient(logger *logrus.Logger, servicePrincipalName string, quiet bool
 		return nil, fmt.Errorf("failed to find any valid kerberos ticket cache at [%v]", cleanCachePath)
 	}
 
-	var cl *client.Client
-
-	for i, ccp := range cleanCachePaths {
-		ccache, loadCacheErr := credentials.LoadCCache(ccp)
-		if loadCacheErr != nil {
-			return nil, fmt.Errorf("could not load kerberos ticket cache at [%v]: %v", ccp, loadCacheErr)
+	var lastErr error
+	for _, ccp := range cleanCachePaths {
+		ccache, err := credentials.LoadCCache(ccp)
+		if err != nil {
+			lastErr = fmt.Errorf("failed to load Kerberos ticket cache [%s]: %w", ccp, err)
+			logger.Debugf("%v", lastErr)
+			continue
 		}
 
-		logger.Debugf("using ticket kerberos ticket cache: %v", ccp)
+		logger.Debugf("using Kerberos ticket cache: %v", ccp)
 
-		// grpckrb only accepts a standard logger so create a standard logger and forward all logs to the logrus logger
+		// grpckrb uses a standard logger; forward its output to logrus.
 		stdLogger := log.New(os.Stderr, "gokrb5", log.Ldate|log.Ltime)
 		stdLogger.SetOutput(logger.WriterLevel(logrus.DebugLevel))
 
-		// Create a client from the loaded CCache
-		cl, err = client.NewFromCCache(ccache, conf, client.Logger(stdLogger), client.DisablePAFXFAST(true))
+		cl, err := client.NewFromCCache(ccache, conf, client.Logger(stdLogger), client.DisablePAFXFAST(true))
 		if err != nil {
-			return nil, fmt.Errorf("failed to create client from kerberos ticket cache: %v", err)
+			lastErr = fmt.Errorf("create Kerberos client from cache [%s]: %w", ccp, err)
+			logger.Debugf("%v", lastErr)
+			continue
 		}
 
-		realm := cl.Config.ResolveRealm(servicePrincipalName)
-		logger.Debugf("using realm for principle[%v]: [%v]", servicePrincipalName, realm)
-
+		logger.Debugf("using realm for principal[%v]: [%v]", servicePrincipalName, cl.Config.ResolveRealm(servicePrincipalName))
 		// Log in the kerberos client
 		err = cl.Login()
 		if err != nil {
-			// if this is the last available kerberos ticket cache, error out
-			if i == len(cleanCachePaths)-1 {
-				return nil, fmt.Errorf("failed to login kerberos client: %v", err)
-			} else {
-				logger.Debugf("failed to login kerberos client (trying next available kerberos cache): %v", err)
-			}
+			lastErr = fmt.Errorf("failed to login with Kerberos ticket cache [%s]: %w", ccp, err)
+			logger.Debugf("%v", lastErr)
+			continue
 		}
+		return cl, nil
 	}
 
-	return cl, nil
+	return nil, fmt.Errorf("no usable Kerberos credential cache found: %w", lastErr)
 }
 
 // StartTransfer sends a GRPC transfer request to the conduit server

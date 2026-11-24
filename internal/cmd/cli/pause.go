@@ -4,13 +4,9 @@ package clicmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/google/uuid"
 	proto "github.com/lanl/conduit/api"
-	"github.com/lanl/conduit/defaults"
-	"github.com/lanl/conduit/internal/cli/client"
-	"github.com/lanl/conduit/internal/cli/util"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -45,51 +41,37 @@ var pauseCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		logger := logrus.New()
 		if debug {
 			logger.SetLevel(logrus.DebugLevel)
 			logger.Debugf("loaded cli config from: %v", viper.ConfigFileUsed())
 		}
 
-		clientCertKeyBundle, err := cmd.Flags().GetString("cert-key-bundle")
+		client, err := newCLIClient(cmd, logger, quiet)
 		if err != nil {
-			fmt.Printf("failed to get cert-key-bundle flag: %v\n", err)
-			os.Exit(1)
+			return err
 		}
-		clientCert, clientKey, err := util.GetUserCertAndKey(viper.GetString(defaults.ConfigClientCertKey), viper.GetString(defaults.ConfigClientKeyKey), clientCertKeyBundle, defaults.DefaultBundlePath)
-		if err != nil {
-			fmt.Printf("failed to get client cert and key: %v\n", err)
-			os.Exit(1)
-		}
-		logger.Debugf("using user cert [%v] and key [%v]", clientCert, clientKey)
+		defer client.Close()
 
-		client, err := client.NewClient(logger, quiet, clientCert, clientKey)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
 		pTID := args[0]
 		pPauseState := args[1]
 
 		transferID, err := uuid.Parse(pTID)
 		if err != nil {
-			fmt.Printf("failed to parse transferID[%s]: %v\n", pTID, err)
-			os.Exit(1)
+			return fmt.Errorf("failed to parse transferID[%s]: %v", pTID, err)
 		}
 
 		ps := proto.TransferState_TRANSFER_NONE
 		if psi, ok := proto.TransferState_value[pPauseState]; ok {
 			ps = proto.TransferState(psi)
 		} else {
-			fmt.Printf("not a valid pause state: %s\n", pPauseState)
-			os.Exit(1)
+			return fmt.Errorf("not a valid pause state: %s", pPauseState)
 		}
 
 		td, err := client.PauseTransfer(transferID, ps)
 		if err != nil {
-			fmt.Printf("pause request failed: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("pause request failed: %v", err)
 		} else {
 			// check if we just paused a transfer at a point that it's already past
 			if td.GetState() > ps && ps != proto.TransferState_TRANSFER_NONE {
@@ -98,6 +80,8 @@ var pauseCmd = &cobra.Command{
 				fmt.Printf("successfully submitted transfer pause: %v\n", td.GetTransferID())
 			}
 		}
+
+		return nil
 	},
 }
 
